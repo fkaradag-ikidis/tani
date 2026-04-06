@@ -2,121 +2,630 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Semptomdan Tanıya | Dr. Feridun Karadağ</title>
+
+    <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiU2VtcHRvbWRhbiBUYW5peWEiLCJzaG9ydF9uYW1lIjoiVGFuaV9EZXN0ZWsiLCJzdGFydF91cmwiOiIuIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiI2ZmZmZmZiIsInRoZW1lX2NvbG9yIjoiIzI1NjNlYiJ9">
+
     <style>
-        /* Buraya önceki index.html dosyasındaki tüm CSS kodunu koyuyorum (kısaltılmış hali) */
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: system-ui, sans-serif; background: #f1f5f9; color: #1e293b; line-height: 1.6; padding-bottom: 100px; }
-        .header { background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white; padding: 1.5rem; text-align: center; position: sticky; top: 0; z-index: 100; }
-        .container { max-width: 900px; margin: 0 auto; padding: 1rem; }
-        .card { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
-        .btn-primary { background: #2563eb; color: white; border: none; padding: 1rem 2rem; font-size: 1.2rem; border-radius: 10px; width: 100%; cursor: pointer; margin: 1rem 0; }
-        .disease-item { border: 2px solid #e2e8f0; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
-        .high-probability { border-left: 6px solid #10b981; }
-        .medium-probability { border-left: 6px solid #f59e0b; }
-        .empty-state { text-align: center; padding: 3rem; color: #64748b; }
+        /* ===== RESET & VARIABLES ===== */
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        :root {
+            --primary: #2563eb; --primary-dark: #1d4ed8; --secondary: #64748b;
+            --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+            --bg: #f1f5f9; --card: #ffffff; --text: #1e293b;
+            --border: #e2e8f0; --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg); color: var(--text); line-height: 1.6; padding-bottom: 80px;
+        }
+
+        /* ===== HEADER ===== */
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white; padding: 1.5rem 1rem; text-align: center;
+            position: sticky; top: 0; z-index: 100; box-shadow: var(--shadow);
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem; }
+        .header p { font-size: 0.875rem; opacity: 0.9; }
+
+        /* ===== LAYOUT ===== */
+        .container { max-width: 800px; margin: 0 auto; padding: 1rem; }
+        .card {
+            background: var(--card); border-radius: 12px; padding: 1.25rem;
+            margin-bottom: 1rem; box-shadow: var(--shadow); border: 1px solid var(--border);
+        }
+        .card-title {
+            font-size: 1.125rem; font-weight: 700; color: var(--primary);
+            margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;
+        }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+
+        /* ===== FORMS ===== */
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; font-weight: 600; font-size: 0.875rem; margin-bottom: 0.375rem; color: var(--secondary); }
+        input, select, textarea {
+            width: 100%; padding: 0.75rem; border: 2px solid var(--border);
+            border-radius: 8px; font-size: 1rem; transition: border-color 0.2s;
+            font-family: inherit; background: white;
+        }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
+        textarea { min-height: 120px; resize: vertical; font-size: 0.95rem; }
+
+        /* ===== TABS ===== */
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; overflow-x: auto; padding-bottom: 0.5rem; -webkit-overflow-scrolling: touch; }
+        .tab { padding: 0.75rem 1rem; background: var(--bg); border: none; border-radius: 8px; white-space: nowrap; cursor: pointer; font-weight: 600; color: var(--secondary); transition: all 0.2s; }
+        .tab.active { background: var(--primary); color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* ===== SYMPTOM SECTION ===== */
+        .symptom-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 0.5rem; max-height: 450px; overflow-y: auto; padding: 0.5rem;
+            background: var(--bg); border-radius: 8px; border: 1px solid var(--border);
+        }
+        .symptom-item {
+            background: white; padding: 0.6rem; border-radius: 6px; border: 2px solid var(--border);
+            cursor: pointer; font-size: 0.85rem; text-align: center;
+            transition: all 0.2s; min-height: 44px; display: flex; align-items: center; justify-content: center;
+        }
+        .symptom-item:hover { border-color: var(--primary); transform: translateY(-1px); }
+        .symptom-item.selected { background: var(--primary); color: white; border-color: var(--primary); font-weight: 600; }
+
+        /* ===== SYSTEM TABS ===== */
+        .system-tabs {
+            display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;
+            padding: 0.5rem; background: var(--bg); border-radius: 10px; border: 1px solid var(--border);
+        }
+        .system-tab {
+            padding: 0.6rem 1.2rem; background: white; border: 2px solid transparent;
+            border-radius: 20px; cursor: pointer; font-size: 0.875rem; font-weight: 600;
+            color: var(--secondary); transition: all 0.2s; white-space: nowrap;
+        }
+        .system-tab:hover { border-color: var(--primary); color: var(--primary); }
+        .system-tab.active { background: var(--primary); color: white; border-color: var(--primary); box-shadow: 0 4px 6px -1px rgba(37,99,235,0.2); }
+
+        /* ===== SEARCH ===== */
+        .search-box {
+            width: 100%; padding: 0.9rem; border: 2px solid var(--border); border-radius: 10px;
+            margin-bottom: 1rem; font-size: 1rem; transition: all 0.2s;
+        }
+        .search-box:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); outline: none; }
+
+        /* ===== SELECTED SYMPTOMS ===== */
+        .selected-symptoms {
+            display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem;
+            min-height: 2.5rem; padding: 0.5rem; background: var(--bg);
+            border-radius: 8px; border: 1px dashed var(--border);
+        }
+        .symptom-tag {
+            background: var(--primary); color: white; padding: 0.4rem 0.8rem;
+            border-radius: 20px; font-size: 0.875rem; display: inline-flex;
+            align-items: center; gap: 0.4rem; font-weight: 500; animation: popIn 0.2s;
+        }
+        @keyframes popIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .remove-tag { cursor: pointer; font-weight: 700; margin-left: 0.2rem; font-size: 1.1rem; line-height: 1; }
+        .remove-tag:hover { color: #fecaca; }
+
+        /* ===== LAB GRID ===== */
+        .lab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; }
+        .lab-item { background: var(--bg); padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border); }
+        .lab-item label { font-size: 0.75rem; margin-bottom: 0.25rem; color: var(--secondary); }
+        .lab-item input, .lab-item select { padding: 0.5rem; font-size: 0.875rem; border: 1px solid var(--border); }
+
+        /* ===== STATS BAR ===== */
+        .stats-bar { display: flex; gap: 1rem; margin-bottom: 1rem; font-size: 0.875rem; color: var(--secondary); flex-wrap: wrap; }
+        .stats-bar span { background: var(--bg); padding: 0.5rem 1rem; border-radius: 20px; border: 1px solid var(--border); }
+        .stats-bar span strong { color: var(--primary); }
+
+        /* ===== BUTTONS ===== */
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white; border: none; padding: 1.25rem; border-radius: 12px; font-size: 1.25rem;
+            font-weight: 700; cursor: pointer; width: 100%; margin-top: 1rem;
+            box-shadow: 0 4px 6px -1px rgb(37 99 235 / 0.3); transition: transform 0.2s;
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgb(37 99 235 / 0.3); }
+        .btn-primary:active { transform: scale(0.98); }
+
+        /* ===== RESULTS ===== */
+        .results {
+            background: var(--card); border-radius: 12px; padding: 1.25rem;
+            margin-top: 1rem; box-shadow: var(--shadow); display: none; border: 2px solid var(--primary);
+        }
+        .results.active { display: block; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .disease-item {
+            border: 2px solid var(--border); border-radius: 10px; padding: 1.25rem;
+            margin-bottom: 1rem; cursor: pointer; transition: all 0.2s; background: white;
+        }
+        .disease-item:hover { border-color: var(--primary); box-shadow: var(--shadow); }
+        .disease-item.high-probability   { border-left: 5px solid var(--success); background: linear-gradient(to right, #f0fdf4, white); }
+        .disease-item.medium-probability { border-left: 5px solid var(--warning); background: linear-gradient(to right, #fffbeb, white); }
+        .disease-item.low-probability    { border-left: 5px solid var(--secondary); opacity: 0.9; }
+        .disease-item.rare               { border-left: 5px solid var(--danger); opacity: 0.8; background: linear-gradient(to right, #fef2f2, white); }
+
+        .disease-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem; }
+        .disease-name { font-weight: 700; color: var(--text); font-size: 1.1rem; }
+        .disease-code { background: var(--primary); color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+
+        .prevalence-badge { padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
+        .prev-high   { background: #dbeafe; color: #1e40af; }
+        .prev-medium { background: #fef3c7; color: #92400e; }
+        .prev-low    { background: #fee2e2; color: #991b1b; }
+        .prev-rare   { background: #f3e8ff; color: #6b21a8; }
+
+        .match-score { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }
+        .score-bar { flex: 1; height: 10px; background: var(--bg); border-radius: 5px; overflow: hidden; border: 1px solid var(--border); }
+        .score-fill { height: 100%; background: linear-gradient(90deg, var(--success) 0%, var(--warning) 50%, var(--danger) 100%); border-radius: 5px; transition: width 0.8s ease; }
+        .score-text { font-size: 1.1rem; font-weight: 800; color: var(--primary); min-width: 50px; text-align: right; }
+
+        .score-breakdown {
+            display: flex; gap: 12px; font-size: 0.85rem; margin-top: 8px;
+            flex-wrap: wrap; color: var(--secondary); background: #f8fafc;
+            padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border);
+        }
+        .score-breakdown span { display: flex; align-items: center; gap: 4px; }
+
+        .disease-details { display: none; margin-top: 1rem; padding-top: 1rem; border-top: 2px dashed var(--border); font-size: 0.9rem; }
+        .disease-details.show { display: block; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .detail-section { margin-bottom: 1rem; }
+        .detail-label { font-weight: 700; color: var(--primary); margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; }
+        .badge { display: inline-flex; align-items: center; padding: 0.3rem 0.6rem; background: var(--bg); border-radius: 6px; font-size: 0.8rem; margin: 0.2rem; border: 1px solid var(--border); font-weight: 500; }
+        .badge.matched     { background: var(--success); color: white; border-color: var(--success); }
+        .badge.matched-lab { background: var(--primary); color: white; border-color: var(--primary); }
+
+        /* ===== LOADING ===== */
+        .loading { display: none; text-align: center; padding: 3rem; background: var(--card); border-radius: 12px; margin-top: 1rem; box-shadow: var(--shadow); }
+        .loading.active { display: block; }
+        .spinner { width: 50px; height: 50px; border: 5px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ===== EMPTY STATE ===== */
+        .empty-state { text-align: center; padding: 3rem; color: var(--secondary); font-style: italic; background: var(--bg); border-radius: 8px; border: 2px dashed var(--border); }
+
+        /* ===== DISCLAIMER ===== */
+        .disclaimer {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 3px solid #f59e0b; border-radius: 16px; padding: 2rem;
+            margin-top: 2rem; font-size: 0.9rem; line-height: 1.8; color: #78350f;
+        }
+        .disclaimer-title { font-weight: 800; color: #92400e; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; font-size: 1.1rem; }
+        .disclaimer h4 { color: #92400e; margin: 1.5rem 0 0.5rem; font-size: 1rem; }
+        .disclaimer ul { margin-left: 1.5rem; margin-bottom: 1rem; }
+        .disclaimer li { margin-bottom: 0.5rem; }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 640px) {
+            .grid-2, .grid-3, .lab-grid { grid-template-columns: 1fr; }
+            .symptom-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); max-height: 350px; }
+            .system-tabs { overflow-x: auto; flex-wrap: nowrap; }
+        }
     </style>
 </head>
 <body>
 
+<!-- ===== HEADER ===== -->
 <div class="header">
     <h1>🩺 Semptomdan Tanıya</h1>
-    <p>Dr. Feridun Karadağ | Klinik Karar Destek Sistemi</p>
+    <p>Dr. Feridun Karadağ | Klinik Karar Destek Sistemi v3.0</p>
 </div>
 
 <div class="container">
-    <div class="card">
-        <h2>Hasta Bilgileri</h2>
-        <input type="number" id="patientAge" placeholder="Yaş" style="width:100%; padding:10px; margin:5px 0;">
-        <select id="patientGender" style="width:100%; padding:10px; margin:5px 0;">
-            <option value="">Cinsiyet Seçin</option>
-            <option value="erkek">Erkek</option>
-            <option value="kadın">Kadın</option>
-        </select>
-    </div>
 
+    <!-- ===== HASTA DEMOGRAFİK BİLGİLERİ ===== -->
     <div class="card">
-        <h2>Semptom Seçimi</h2>
-        <input type="text" id="symptomSearch" placeholder="Semptom ara..." style="width:100%; padding:10px; margin-bottom:10px;">
-        <div id="symptomContainer" style="max-height:400px; overflow-y:auto; border:1px solid #ddd; padding:10px; border-radius:8px;"></div>
-        
-        <div style="margin-top:15px;">
-            <strong>Seçili Semptomlar:</strong>
-            <div id="selectedSymptoms" style="min-height:50px; padding:10px; background:#f8fafc; border-radius:8px;"></div>
+        <div class="card-title">👤 Hasta Demografik Bilgileri (Zorunlu Filtreler)</div>
+        <div class="grid-3">
+            <div class="form-group">
+                <label>Yaş (Yıl) *</label>
+                <input type="number" id="patientAge" placeholder="Örn: 45" min="0" max="120" onchange="validateAge()">
+            </div>
+            <div class="form-group">
+                <label>Cinsiyet *</label>
+                <select id="patientGender">
+                    <option value="">Seçiniz...</option>
+                    <option value="erkek">Erkek</option>
+                    <option value="kadın">Kadın</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Boy (cm)</label>
+                <input type="number" id="patientHeight" placeholder="170" min="30" max="250" step="0.1" oninput="updateBMI()">
+            </div>
+        </div>
+        <div class="grid-2">
+            <div class="form-group">
+                <label>Kilo (kg)</label>
+                <input type="number" id="patientWeight" placeholder="70" min="1" max="300" step="0.1" oninput="updateBMI()">
+            </div>
+            <div class="form-group">
+                <label>BMI (Oto-Hesaplanır)</label>
+                <input type="text" id="patientBMI" readonly placeholder="-" style="background:#f8fafc; font-weight:600;">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Anamnez / Şikayet Öyküsü (Semptomlar otomatik çıkarılır)</label>
+            <textarea id="patientHistory" placeholder="Hastanın başvuru şikayetini detaylı yazınız. Örn: 45 yaşında erkek hasta. 3 gündür göğsünde baskı hissi, nefes darlığı ve terleme şikayeti var..." onblur="extractSymptomsFromHistory()"></textarea>
+            <small style="color:var(--secondary); display:block; margin-top:0.25rem;">💡 İpucu: 'Baş ağrısı', 'göğüs ağrısı', 'nefes darlığı' gibi kelimeler otomatik algılanır.</small>
         </div>
     </div>
 
-    <button class="btn-primary" onclick="analyzeCase()">🔍 Tanı Analizi Başlat</button>
+    <!-- ===== SEMPTOM SEÇİMİ ===== -->
+    <div class="card">
+        <div class="card-title">🔍 Semptom Seçimi (12 Sistem - 400+ Semptom)</div>
+        <input type="text" class="search-box" id="symptomSearch" placeholder="Semptom ara (örn: baş ağrısı, ateş, öksürük)..." oninput="filterSymptoms()">
 
-    <div id="loadingSection" style="display:none; text-align:center; padding:2rem;">
-        <p>Analiz yapılıyor...</p>
+        <div class="stats-bar">
+            <span>Toplam: <strong>400+</strong> semptom</span>
+            <span>Seçili: <strong id="selectedCount">0</strong></span>
+            <span>Sistem: <strong id="currentSystem">Genel Sistemik</strong></span>
+        </div>
+
+        <div class="system-tabs" id="systemTabs">
+            <button class="system-tab active" data-system="GenelSistemik"    onclick="switchSystem('GenelSistemik')">🌡 Genel</button>
+            <button class="system-tab" data-system="Enfeksiyon"             onclick="switchSystem('Enfeksiyon')">🦠 Enfeksiyon</button>
+            <button class="system-tab" data-system="Kardiyovasküler"        onclick="switchSystem('Kardiyovasküler')">❤️ Kardiyovasküler</button>
+            <button class="system-tab" data-system="Solunum"                onclick="switchSystem('Solunum')">🫁 Solunum</button>
+            <button class="system-tab" data-system="Sindirim"               onclick="switchSystem('Sindirim')">🫃 Sindirim</button>
+            <button class="system-tab" data-system="Nöroloji"               onclick="switchSystem('Nöroloji')">🧠 Nöroloji</button>
+            <button class="system-tab" data-system="Endokrin"               onclick="switchSystem('Endokrin')">⚗️ Endokrin</button>
+            <button class="system-tab" data-system="Romatoloji"             onclick="switchSystem('Romatoloji')">🦴 Romatoloji</button>
+            <button class="system-tab" data-system="Dermatoloji"            onclick="switchSystem('Dermatoloji')">🩹 Dermatoloji</button>
+            <button class="system-tab" data-system="Üroloji"                onclick="switchSystem('Üroloji')">💧 Üroloji</button>
+            <button class="system-tab" data-system="Jinekoloji"             onclick="switchSystem('Jinekoloji')">🔬 Jinekoloji</button>
+            <button class="system-tab" data-system="Psikiyatri"             onclick="switchSystem('Psikiyatri')">🧩 Psikiyatri</button>
+            <button class="system-tab" data-system="Hematoloji"             onclick="switchSystem('Hematoloji')">🩸 Hematoloji</button>
+        </div>
+
+        <div class="symptom-grid" id="symptomContainer"></div>
+
+        <div style="margin-top:1rem;">
+            <label style="display:flex; justify-content:space-between; align-items:center;">
+                <span>Seçili Semptomlar:</span>
+                <button onclick="clearAllSymptoms()" style="background:none; border:none; color:var(--danger); font-size:0.875rem; cursor:pointer; font-weight:600;">Tümünü Temizle</button>
+            </label>
+            <div class="selected-symptoms" id="selectedSymptoms">
+                <span style="color:var(--secondary); font-size:0.875rem; padding:0.5rem;">Henüz semptom seçilmedi. Yukarıdan seçim yapın veya anamnez yazın...</span>
+            </div>
+        </div>
     </div>
 
-    <div id="resultsSection" class="card" style="display:none;">
-        <h2>Olası Tanılar</h2>
+    <!-- ===== LABORATUVAR ===== -->
+    <div class="card">
+        <div class="card-title">🧪 Laboratuvar Bulguları (Sadece Girilen Değerler Değerlendirilir)</div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="showLabTab('hematology', event)">Hematoloji</button>
+            <button class="tab" onclick="showLabTab('biochemistry', event)">Biyokimya</button>
+            <button class="tab" onclick="showLabTab('cardiac', event)">Kardiyak</button>
+            <button class="tab" onclick="showLabTab('urine', event)">İdrar</button>
+            <button class="tab" onclick="showLabTab('microbiology', event)">Mikrobiyoloji</button>
+            <button class="tab" onclick="showLabTab('hormone', event)">Hormon</button>
+            <button class="tab" onclick="showLabTab('gases', event)">Kan Gazı</button>
+        </div>
+
+        <div id="hematology" class="tab-content active">
+            <div class="lab-grid">
+                <div class="lab-item"><label>Hemoglobin (g/dL) [12-16]</label><input type="number" id="labHgb" step="0.1" placeholder="Boş = görmezden gel"></div>
+                <div class="lab-item"><label>WBC (10³/μL) [4-10]</label><input type="number" id="labWBC" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>Platelet (10³/μL) [150-400]</label><input type="number" id="labPlt" step="1" placeholder=""></div>
+                <div class="lab-item"><label>MCV (fL) [80-100]</label><input type="number" id="labMCV" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>CRP (mg/L) [&lt;5]</label><input type="number" id="labCRP" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>Sedimentasyon (mm/h) [0-20]</label><input type="number" id="labESR" step="1" placeholder=""></div>
+            </div>
+        </div>
+
+        <div id="biochemistry" class="tab-content">
+            <div class="lab-grid">
+                <div class="lab-item"><label>Glukoz (Açlık mg/dL) [70-100]</label><input type="number" id="labGlu" step="1" placeholder=""></div>
+                <div class="lab-item"><label>Üre (mg/dL) [10-50]</label><input type="number" id="labUrea" step="1" placeholder=""></div>
+                <div class="lab-item"><label>Kreatinin (mg/dL) [0.6-1.2]</label><input type="number" id="labCre" step="0.01" placeholder=""></div>
+                <div class="lab-item"><label>AST (U/L) [0-40]</label><input type="number" id="labAST" step="1" placeholder=""></div>
+                <div class="lab-item"><label>ALT (U/L) [0-40]</label><input type="number" id="labALT" step="1" placeholder=""></div>
+                <div class="lab-item"><label>ALP (U/L) [40-130]</label><input type="number" id="labALP" step="1" placeholder=""></div>
+                <div class="lab-item"><label>Total Bilirubin [0.3-1.2]</label><input type="number" id="labBil" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>Albumin (g/dL) [3.5-5.0]</label><input type="number" id="labAlb" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>Na (mEq/L) [135-145]</label><input type="number" id="labNa" step="1" placeholder=""></div>
+                <div class="lab-item"><label>K (mEq/L) [3.5-5.0]</label><input type="number" id="labK" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>Ca (mg/dL) [8.5-10.5]</label><input type="number" id="labCa" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>Trigliserid (mg/dL) [&lt;150]</label><input type="number" id="labTG" step="1" placeholder=""></div>
+            </div>
+        </div>
+
+        <div id="cardiac" class="tab-content">
+            <div class="lab-grid">
+                <div class="lab-item"><label>Troponin T/I (ng/L) [&lt;14]</label><input type="number" id="labTrop" step="0.001" placeholder=""></div>
+                <div class="lab-item"><label>BNP/NT-proBNP [&lt;100]</label><input type="number" id="labBNP" step="1" placeholder=""></div>
+                <div class="lab-item"><label>CK-MB (U/L) [&lt;25]</label><input type="number" id="labCKMB" step="1" placeholder=""></div>
+                <div class="lab-item"><label>D-Dimer (μg/mL) [&lt;500]</label><input type="number" id="labDimer" step="1" placeholder=""></div>
+            </div>
+        </div>
+
+        <div id="urine" class="tab-content">
+            <div class="lab-grid">
+                <div class="lab-item"><label>pH [4.5-8.0]</label><input type="number" id="labUrinepH" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>Protein</label>
+                    <select id="labProtein">
+                        <option value="">Bilinmiyor</option>
+                        <option value="negatif">Negatif</option><option value="trace">Trace</option>
+                        <option value="1+">1+</option><option value="2+">2+</option>
+                        <option value="3+">3+</option><option value="4+">4+</option>
+                    </select>
+                </div>
+                <div class="lab-item"><label>Glukoz</label>
+                    <select id="labUrineGlu">
+                        <option value="">Bilinmiyor</option><option value="negatif">Negatif</option>
+                        <option value="1+">1+</option><option value="2+">2+</option>
+                        <option value="3+">3+</option><option value="4+">4+</option>
+                    </select>
+                </div>
+                <div class="lab-item"><label>Keton</label>
+                    <select id="labKeton">
+                        <option value="">Bilinmiyor</option><option value="negatif">Negatif</option>
+                        <option value="1+">1+</option><option value="2+">2+</option>
+                        <option value="3+">3+</option><option value="4+">4+</option>
+                    </select>
+                </div>
+                <div class="lab-item"><label>Lökosit Esteraz</label>
+                    <select id="labLeuko">
+                        <option value="">Bilinmiyor</option><option value="negatif">Negatif</option><option value="pozitif">Pozitif</option>
+                    </select>
+                </div>
+                <div class="lab-item"><label>Nitrit</label>
+                    <select id="labNitrit">
+                        <option value="">Bilinmiyor</option><option value="negatif">Negatif</option><option value="pozitif">Pozitif</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div id="microbiology" class="tab-content">
+            <div class="form-group"><label>Kan Kültürü</label><input type="text" id="labBloodCulture" placeholder="Örn: Staphylococcus aureus..."></div>
+            <div class="form-group"><label>İdrar Kültürü</label><input type="text" id="labUrineCulture" placeholder="Örn: E.coli >10^5 CFU..."></div>
+            <div class="form-group"><label>Balgam Kültürü / GRAM</label><input type="text" id="labSputum" placeholder="Örn: Gram (+) diplokoklar..."></div>
+        </div>
+
+        <div id="hormone" class="tab-content">
+            <div class="lab-grid">
+                <div class="lab-item"><label>TSH (mIU/L) [0.4-4.0]</label><input type="number" id="labTSH" step="0.01" placeholder=""></div>
+                <div class="lab-item"><label>Serbest T4 [0.8-1.8]</label><input type="number" id="labT4" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>Kortizol (μg/dL) [6-23]</label><input type="number" id="labCortisol" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>ACTH (pg/mL) [7-63]</label><input type="number" id="labACTH" step="0.1" placeholder=""></div>
+            </div>
+        </div>
+
+        <div id="gases" class="tab-content">
+            <div class="lab-grid">
+                <div class="lab-item"><label>pH [7.35-7.45]</label><input type="number" id="labABGpH" step="0.01" placeholder=""></div>
+                <div class="lab-item"><label>pO2 (mmHg) [80-100]</label><input type="number" id="labABGpO2" step="1" placeholder=""></div>
+                <div class="lab-item"><label>pCO2 [35-45]</label><input type="number" id="labABGpCO2" step="1" placeholder=""></div>
+                <div class="lab-item"><label>HCO3 [22-26]</label><input type="number" id="labABGHCO3" step="0.1" placeholder=""></div>
+                <div class="lab-item"><label>Laktat [0.5-2.2]</label><input type="number" id="labLactate" step="0.1" placeholder=""></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== GÖRÜNTÜLEME & PATOLOJİ ===== -->
+    <div class="card">
+        <div class="card-title">📷 Görüntüleme ve Patoloji (Opsiyonel)</div>
+        <div class="form-group">
+            <label>Radyoloji / Görüntüleme Bulguları</label>
+            <textarea id="imagingResults" placeholder="BT, MR, USG, Radyografi bulguları... Örn: Sağ alt lob pnömonik infiltrasyon, mediastinal lenfadenopati..."></textarea>
+        </div>
+        <div class="form-group">
+            <label>Patoloji / Biyopsi Sonuçları</label>
+            <textarea id="pathologyResults" placeholder="Patoloji raporları... Örn: Malign hücreler, granülomatöz enflamasyon..."></textarea>
+        </div>
+    </div>
+
+    <!-- ===== ANALİZ BUTONU ===== -->
+    <button class="btn-primary" onclick="analyzeCase()">
+        🔍 AKILLI TANI ANALİZİ BAŞLAT
+    </button>
+
+    <!-- ===== YÜKLEME ===== -->
+    <div class="loading" id="loadingSection">
+        <div class="spinner"></div>
+        <div style="font-weight:700; color:var(--primary); font-size:1.1rem;">Analiz yapılıyor...</div>
+        <div style="font-size:0.875rem; color:var(--secondary); margin-top:0.5rem;">Yaş/cinsiyet filtreleri uygulanıyor, prevalans skorlaması hesaplanıyor...</div>
+    </div>
+
+    <!-- ===== SONUÇLAR ===== -->
+    <div class="results" id="resultsSection">
+        <div class="card-title" style="margin-bottom:1.5rem;">📋 Olası Tanılar (Prevalans & Eşleşme Sıralaması)</div>
         <div id="diseaseList"></div>
     </div>
-</div>
 
+    <!-- ===== SORUMLULUK REDDİ ===== -->
+    <div class="disclaimer">
+        <div class="disclaimer-title">⚠️ KAPSAMLI SORUMLULUK REDDİ BEYANI</div>
+
+        <p><strong>Bu yazılım kesinlikle bir tıbbi teşhis ve tedavi cihazı değildir.</strong> Sadece eğitim ve araştırma amaçlı geliştirilmiş, klinik karar destek sistemi niteliğindedir. Yazılımdan elde edilecek sonuçlar profesyonel bir hekimin muayenesi, anamnezi, fizik muayene ve laboratuvar/görüntüleme bulgularının bütüncül değerlendirmesinin yerini tutamaz.</p>
+
+        <h4>1. TIBBİ SORUMLULUK REDDİ:</h4>
+        <ul>
+            <li>Bu sistemde yer alan bilgiler genel bilgilendirme amaçlı olup, teşhis veya tedavi önerisi değildir.</li>
+            <li>Sistemin kullanımından doğabilecek yanlış teşhis, tedavi gecikmesi veya diğer tıbbi komplikasyonlardan Dr. Feridun Karadağ ve yazılım geliştiricileri hukuken ve etik olarak sorumlu tutulamaz.</li>
+            <li>Kullanıcı, bu sistemin karar destek aracı olduğunu ve nitelikli bir sağlık kuruluşuna başvurmanın zorunlu olduğunu kabul eder.</li>
+            <li><strong>Acil durumlarda derhal 112'yi arayın veya en yakın acil servise başvurun.</strong></li>
+        </ul>
+
+        <h4>2. ALGORİTMA SINIRLILIKLARI:</h4>
+        <ul>
+            <li>Yapay zeka algoritmaları %100 doğruluk garantisi vermez. Prevalans verileri epidemiyolojik çalışmalardan elde edilmiştir ve bölgesel farklılıklar gösterebilir.</li>
+            <li>Nadir hastalıklar yaygın hastalıklara göre daha düşük skor alabilir; nadir hastalık şüphesi varsa spesifik testler istenmelidir.</li>
+        </ul>
+
+        <h4>3. TELİF HAKKI:</h4>
+        <p>Tüm içerik ve algoritmalar © 2024-2026 Dr. Feridun Karadağ tarafından geliştirilmiştir. Tüm hakları saklıdır. İzinsiz kopyalama, dağıtım veya ticari kullanım yasaktır.</p>
+
+        <div style="border-top:2px solid #f59e0b; padding-top:1rem; margin-top:1rem; font-style:italic; font-size:0.85rem;">
+            <strong>English:</strong> This system is for educational purposes only and does not constitute medical advice. Always seek the advice of a qualified physician. Emergency? Call 112 (Turkey) or your local emergency number immediately.
+        </div>
+    </div>
+
+</div><!-- /.container -->
+
+<!-- ===== SCRIPTS ===== -->
+<!-- Veritabanı (3000+ hastalık) -->
 <script src="veritabani.js"></script>
-<script src="algorithm.js"></script>
+<!-- Algoritma motoru -->
+<script src="algoritma.js"></script>
 
 <script>
-// Basit UI Fonksiyonları (eksik olanlar)
+// ==========================================
+// UYGULAMA UI FONKSİYONLARI
+// (Algoritma mantığı algoritma.js'de)
+// ==========================================
+
+// Global seçili semptomlar dizisi (algoritma.js de bunu kullanır)
 let selectedSymptoms = [];
 
-function renderSymptoms(system = 'GenelSistemik') {
+// ---- BAŞLATMA ----
+function initApp() {
+    renderSymptoms('GenelSistemik');
+}
+
+// ---- BMI HESAPLAMA ----
+function updateBMI() {
+    const height = parseFloat(document.getElementById('patientHeight').value);
+    const weight = parseFloat(document.getElementById('patientWeight').value);
+    const bmiInput = document.getElementById('patientBMI');
+    if (height && weight && height > 0) {
+        const bmi = (weight / ((height / 100) ** 2)).toFixed(1);
+        let cat = bmi < 18.5 ? ' (Zayıf)' : bmi < 25 ? ' (Normal)' : bmi < 30 ? ' (Kilolu)' : ' (Obez)';
+        bmiInput.value = bmi + cat;
+    } else {
+        bmiInput.value = '';
+    }
+}
+
+// ---- YAŞ VALİDASYONU ----
+function validateAge() {
+    const age = parseInt(document.getElementById('patientAge').value);
+    if (age < 0 || age > 120) {
+        alert('Geçerli bir yaş giriniz (0-120 arası)');
+        document.getElementById('patientAge').value = '';
+    }
+}
+
+// ---- SEMPTOM RENDER ----
+function renderSymptoms(system) {
     const container = document.getElementById('symptomContainer');
     container.innerHTML = '';
-    
-    if (!symptomDatabase || !symptomDatabase[system]) return;
-    
-    symptomDatabase[system].forEach(symptom => {
+    const symptoms = symptomDatabase[system] || [];
+    symptoms.forEach((symptom, i) => {
         const div = document.createElement('div');
+        div.className = 'symptom-item' + (selectedSymptoms.includes(symptom) ? ' selected' : '');
         div.textContent = symptom;
-        div.style.padding = '10px';
-        div.style.margin = '4px';
-        div.style.border = '1px solid #ddd';
-        div.style.borderRadius = '6px';
-        div.style.cursor = 'pointer';
         div.onclick = () => toggleSymptom(symptom);
-        if (selectedSymptoms.includes(symptom)) div.style.background = '#2563eb';
-        if (selectedSymptoms.includes(symptom)) div.style.color = 'white';
+        container.appendChild(div);
+    });
+    document.getElementById('currentSystem').textContent = system.replace(/([A-Z])/g, ' $1').trim();
+}
+
+// ---- SEMPTOM TOGGLE ----
+function toggleSymptom(symptom) {
+    const idx = selectedSymptoms.indexOf(symptom);
+    if (idx > -1) selectedSymptoms.splice(idx, 1);
+    else selectedSymptoms.push(symptom);
+    updateSelectedSymptoms();
+    const active = document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik';
+    renderSymptoms(active);
+}
+
+// ---- SEÇİLİ SEMPTOMLAR GÜNCELLE ----
+function updateSelectedSymptoms() {
+    const container = document.getElementById('selectedSymptoms');
+    document.getElementById('selectedCount').textContent = selectedSymptoms.length;
+    if (selectedSymptoms.length === 0) {
+        container.innerHTML = '<span style="color:var(--secondary); font-size:0.875rem; padding:0.5rem;">Henüz semptom seçilmedi...</span>';
+        return;
+    }
+    container.innerHTML = selectedSymptoms.map(s => `
+        <span class="symptom-tag">
+            ${s}
+            <span class="remove-tag" onclick="event.stopPropagation(); removeSymptom('${s.replace(/'/g, "\\'")}')">&times;</span>
+        </span>
+    `).join('');
+}
+
+// ---- SEMPTOM SİL ----
+function removeSymptom(symptom) {
+    const idx = selectedSymptoms.indexOf(symptom);
+    if (idx > -1) {
+        selectedSymptoms.splice(idx, 1);
+        updateSelectedSymptoms();
+        const active = document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik';
+        renderSymptoms(active);
+    }
+}
+
+// ---- TÜM SEMPTOMLARI TEMİZLE ----
+function clearAllSymptoms() {
+    selectedSymptoms = [];
+    updateSelectedSymptoms();
+    const active = document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik';
+    renderSymptoms(active);
+}
+
+// ---- SİSTEM SEKME GEÇİŞİ ----
+function switchSystem(system) {
+    document.querySelectorAll('.system-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.system === system);
+    });
+    renderSymptoms(system);
+}
+
+// ---- SEMPTOM ARA ----
+function filterSymptoms() {
+    const search = document.getElementById('symptomSearch').value.toLowerCase().trim();
+    const active = document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik';
+    const container = document.getElementById('symptomContainer');
+    container.innerHTML = '';
+
+    let list = [];
+    if (search.length > 0) {
+        Object.values(symptomDatabase).flat().forEach(s => {
+            if (s.toLowerCase().includes(search) && !list.includes(s)) list.push(s);
+        });
+    } else {
+        list = symptomDatabase[active] || [];
+    }
+
+    if (list.length === 0) {
+        container.innerHTML = '<div class="empty-state">Eşleşen semptom bulunamadı</div>';
+        return;
+    }
+    list.forEach(symptom => {
+        const div = document.createElement('div');
+        div.className = 'symptom-item' + (selectedSymptoms.includes(symptom) ? ' selected' : '');
+        div.textContent = symptom;
+        div.onclick = () => toggleSymptom(symptom);
         container.appendChild(div);
     });
 }
 
-function toggleSymptom(symptom) {
-    if (selectedSymptoms.includes(symptom)) {
-        selectedSymptoms = selectedSymptoms.filter(s => s !== symptom);
-    } else {
-        selectedSymptoms.push(symptom);
-    }
-    updateSelectedSymptoms();
-    renderSymptoms();
+// ---- LAB SEKMELERİ ----
+function showLabTab(tabId, event) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    if (event && event.target) event.target.classList.add('active');
+    document.getElementById(tabId).classList.add('active');
 }
 
-function updateSelectedSymptoms() {
-    const container = document.getElementById('selectedSymptoms');
-    container.innerHTML = selectedSymptoms.length === 0 
-        ? '<em>Henüz semptom seçilmedi</em>' 
-        : selectedSymptoms.map(s => `<span style="background:#2563eb;color:white;padding:4px 10px;border-radius:20px;margin:3px;display:inline-block;">${s}</span>`).join('');
-}
-
-function filterSymptoms() {
-    // Basit arama (geliştirilebilir)
-    renderSymptoms();
-}
-
-function analyzeCase() {
-    window.analyzeCase();   // algorithm.js'den gelen fonksiyon
-}
-
-// Sayfa yüklendiğinde
-window.onload = () => {
-    renderSymptoms('GenelSistemik');
-};
+// ---- BAŞLAT ----
+window.onload = initApp;
 </script>
 
 </body>
