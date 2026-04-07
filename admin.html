@@ -1726,44 +1726,49 @@ function getBaseDB() {
     return null;
 }
 
-function loadFallbackDB() {}  // no-op, kept for compatibility
+function loadFallbackDB() {}
 
 // ══════════════════════════════════════════════════
-//  INIT — sıralı path denemesiyle veritabani.js yükle
+//  INIT — fetch ile veritabani.js yükle
+//  (Script injection const'u window'a bağlamıyor,
+//   new Function() her scope'u yakalar)
 // ══════════════════════════════════════════════════
 window.onload = () => {
     if (getBaseDB()) { checkAuth(); return; }
 
-    // GitHub Pages'ta admin.html'nin konumuna göre farklı relative path'ler dene
     const paths = [
         'veritabani.js',
         '../veritabani.js',
-        '../../veritabani.js',
-        '/tani/veritabani.js'
+        '../../veritabani.js'
     ];
-    let idx = 0;
 
-    function tryNext() {
-        if (getBaseDB()) { checkAuth(); return; }
+    function tryFetch(idx) {
         if (idx >= paths.length) {
-            // Hiçbir path çalışmadı — UI'ı aç, hata göster
             checkAuth();
-            setTimeout(() => toast('⚠️ veritabani.js yüklenemedi — hastalık verisi yok', 'error'), 1000);
+            setTimeout(() => toast('⚠️ veritabani.js bulunamadı', 'error'), 800);
             return;
         }
-        const src = paths[idx++];
-        const s = document.createElement('script');
-        s.src = src;
-        s.onload = () => {
-            if (getBaseDB()) { checkAuth(); }
-            else { tryNext(); }  // yüklendi ama veri yok, sonraki path'i dene
-        };
-        s.onerror = tryNext;
-        document.head.appendChild(s);
+        fetch(paths[idx])
+            .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+            .then(code => {
+                try {
+                    // new Function ile çalıştır — const bile function scope'ta yakalanır
+                    const fn = new Function(code + '\n; return (typeof diseaseDB !== "undefined") ? diseaseDB : null;');
+                    const db = fn();
+                    if (db && db.diseases && db.diseases.length) {
+                        window.diseaseDB = db;
+                        checkAuth();
+                        return;
+                    }
+                } catch(e) { console.warn('parse err', e); }
+                tryFetch(idx + 1);
+            })
+            .catch(() => tryFetch(idx + 1));
     }
 
-    tryNext();
+    tryFetch(0);
 };
+
 
 
 </script>
