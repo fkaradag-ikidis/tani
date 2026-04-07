@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Paneli | Semptomdan Tanıya</title>
+    <!-- veritabani.js statik olarak yükleniyor — dinamik inject GitHub Pages'ta çalışmıyor -->
+    <script src="../veritabani.js" onerror="loadFallbackDB()"></script>
     <style>
         :root {
             --primary: #1e3a8a;
@@ -714,8 +716,30 @@
             </div>
 
             <div class="form-field">
-                <label>Patoloji Notları</label>
-                <textarea id="dPathology" placeholder="Histopatolojik bulgular, biyopsi sonuçları..."></textarea>
+                <label>Komplikasyonlar</label>
+                <div class="tag-container" id="dComplicationsContainer"></div>
+                <div class="add-tag-row">
+                    <input type="text" id="dComplicationsInput" placeholder="Komplikasyon ekle (Enter)..." onkeydown="if(event.key==='Enter')addDiseaseComplication()">
+                    <button class="btn btn-primary btn-sm" onclick="addDiseaseComplication()">Ekle</button>
+                </div>
+            </div>
+
+            <div class="form-field">
+                <label>Tedavi Seçenekleri</label>
+                <div class="tag-container" id="dTreatmentContainer"></div>
+                <div class="add-tag-row">
+                    <input type="text" id="dTreatmentInput" placeholder="Tedavi ekle (Enter)..." onkeydown="if(event.key==='Enter')addDiseaseTreatment()">
+                    <button class="btn btn-primary btn-sm" onclick="addDiseaseTreatment()">Ekle</button>
+                </div>
+            </div>
+
+            <div class="form-field">
+                <label>Patoloji Bulguları</label>
+                <div class="tag-container" id="dPathologyContainer"></div>
+                <div class="add-tag-row">
+                    <input type="text" id="dPathologyInput" placeholder="Patoloji bulgusu ekle (Enter)..." onkeydown="if(event.key==='Enter')addDiseasePathology()">
+                    <button class="btn btn-primary btn-sm" onclick="addDiseasePathology()">Ekle</button>
+                </div>
             </div>
 
             <div class="form-field">
@@ -789,14 +813,15 @@ const LS_KEYS = {
 };
 
 // Local DB state
-let localDiseases = [];
+let localDiseases = [];   // computed in-memory (base + diffs)
+let localDiff = { modified: {}, deleted: {}, added: [] };  // only this goes to localStorage
 let localSymptoms = {};
 let localConfig = {};
 let localRules = [];
 let editingDiseaseIdx = -1;
-let dSymptoms = [], dSigns = [], dLabFindings = [];
+let dSymptoms = [], dSigns = [], dLabFindings = [], dComplications = [], dTreatment = [], dPathologyArr = [];
 let diseasePage = 0;
-const DISEASES_PER_PAGE = 30;
+const DISEASES_PER_PAGE = 50;
 
 // ── Auth helpers ──────────────────────────────────
 function getUser() {
@@ -840,18 +865,15 @@ function startApp() {
 }
 
 function loadData() {
-    // Diseases
+    // Diseases — diff approach (base from window.diseaseDB, overrides in localStorage)
     try {
-        const saved = localStorage.getItem(LS_KEYS.diseaseDB);
-        if (saved) {
-            localDiseases = JSON.parse(saved);
-        } else if (window.diseaseDB && window.diseaseDB.diseases) {
-            localDiseases = window.diseaseDB.diseases.map(transformForAdmin);
-            saveDiseasesToStorage();
-        } else {
-            localDiseases = [];
-        }
-    } catch { localDiseases = []; }
+        const savedDiff = localStorage.getItem(LS_KEYS.diseaseDB);
+        localDiff = savedDiff ? JSON.parse(savedDiff) : { modified: {}, deleted: {}, added: [] };
+        if (!localDiff.modified) localDiff.modified = {};
+        if (!localDiff.deleted) localDiff.deleted = {};
+        if (!localDiff.added) localDiff.added = [];
+    } catch { localDiff = { modified: {}, deleted: {}, added: [] }; }
+    rebuildLocalDiseases();
 
     // Symptoms
     try {
@@ -873,8 +895,9 @@ function loadData() {
 }
 
 function transformForAdmin(raw) {
+    const toArr = v => Array.isArray(v) ? v : (v ? [v] : []);
     return {
-        code: raw.id || '',
+        code: raw.id || raw.code || '',
         name: raw.name || '',
         englishName: raw.englishName || '',
         category: raw.category || 'Genel',
@@ -882,14 +905,14 @@ function transformForAdmin(raw) {
         prevalence: raw.prevalence || 'medium',
         gender: raw.gender || detectGender(raw),
         ageRange: raw.ageRange || detectAgeRange(raw),
-        symptoms: raw.symptoms || [],
-        signs: raw.signs || [],
-        labFindings: raw.labFindings || [],
-        pathologyNotes: Array.isArray(raw.pathology) ? raw.pathology.join('; ') : (raw.pathologyNotes || ''),
-        radiologyNotes: Array.isArray(raw.radiology) ? raw.radiology.join('; ') : (raw.radiologyNotes || ''),
+        symptoms: toArr(raw.symptoms),
+        signs: toArr(raw.signs),
+        labFindings: toArr(raw.labFindings),
+        pathologyArr: toArr(raw.pathology || raw.pathologyArr),
+        radiologyNotes: Array.isArray(raw.radiology) ? raw.radiology.join('; ') : (raw.radiologyNotes || raw.radiology || ''),
         course: raw.course || '',
-        complications: raw.complications || [],
-        treatment: raw.treatment || []
+        complications: toArr(raw.complications),
+        treatment: toArr(raw.treatment)
     };
 }
 
@@ -948,9 +971,39 @@ function getDefaultSymptoms() {
     };
 }
 
-// ── Storage helpers ───────────────────────────────
+// ── Diff helpers ─────────────────────────────────
+function rebuildLocalDiseases() {
+    const db = getBaseDB();
+    const base = db ? db.diseases : [];
+    const result = [];
+    base.forEach(raw => {
+        const id = raw.id || '';
+        if (localDiff.deleted[id]) return; // skip deleted
+        const override = localDiff.modified[id];
+        const d = override ? {...override} : transformForAdmin(raw);
+        d._isBase = true;
+        d._baseId = id;
+        result.push(d);
+    });
+    // Add new diseases
+    localDiff.added.forEach(d => {
+        result.push({...d, _isBase: false, _baseId: null});
+    });
+    localDiseases = result;
+}
+
 function saveDiseasesToStorage() {
-    localStorage.setItem(LS_KEYS.diseaseDB, JSON.stringify(localDiseases));
+    // Only save the diff, not all 4000+ diseases
+    try {
+        localStorage.setItem(LS_KEYS.diseaseDB, JSON.stringify(localDiff));
+    } catch(e) {
+        // If storage is full, try saving only added diseases
+        try {
+            const minDiff = { modified: {}, deleted: localDiff.deleted, added: localDiff.added };
+            localStorage.setItem(LS_KEYS.diseaseDB, JSON.stringify(minDiff));
+            toast('Uyarı: Depolama doldu, yalnızca ekleme/silme kaydedildi', 'error');
+        } catch {}
+    }
 }
 function saveSymptomsToStorage() {
     localStorage.setItem(LS_KEYS.symptomDB, JSON.stringify(localSymptoms));
@@ -1048,9 +1101,12 @@ function getFilteredDiseases() {
     const q = (document.getElementById('diseaseSearch')?.value || '').toLowerCase();
     const cat = document.getElementById('diseaseCatFilter')?.value || '';
     const prev = document.getElementById('diseasePrevFilter')?.value || '';
-    return localDiseases.filter((d, i) => {
-        d._idx = i; // track original index
-        const matchQ = !q || d.name.toLowerCase().includes(q) || (d.code||'').toLowerCase().includes(q) || (d.category||'').toLowerCase().includes(q);
+    return localDiseases.filter(d => {
+        const matchQ = !q || d.name.toLowerCase().includes(q)
+            || (d.code||'').toLowerCase().includes(q)
+            || (d.category||'').toLowerCase().includes(q)
+            || (d.englishName||'').toLowerCase().includes(q)
+            || (d.subcategory||'').toLowerCase().includes(q);
         const matchCat = !cat || d.category === cat;
         const matchPrev = !prev || d.prevalence === prev;
         return matchQ && matchCat && matchPrev;
@@ -1064,53 +1120,85 @@ function renderDiseaseTable() {
     const slice = filtered.slice(diseasePage * DISEASES_PER_PAGE, (diseasePage + 1) * DISEASES_PER_PAGE);
 
     const tbody = document.getElementById('diseaseTableBody');
-    tbody.innerHTML = slice.map(d => {
+    tbody.innerHTML = slice.map((d, i) => {
+        const realIdx = localDiseases.indexOf(d);
         const prevClass = { high: 'bp-high', medium: 'bp-medium', low: 'bp-low', rare: 'bp-rare' }[d.prevalence] || 'bp-medium';
         const prevText = { high: 'Yaygın', medium: 'Orta', low: 'Nadir', rare: 'Çok Nadir' }[d.prevalence] || d.prevalence;
         const genderClass = d.gender === 'erkek' ? 'bp-male' : d.gender === 'kadın' ? 'bp-female' : 'bp-both';
         const genderText = d.gender === 'erkek' ? '♂ Erkek' : d.gender === 'kadın' ? '♀ Kadın' : '⚥ Her İki';
-        return `<tr>
-            <td><code style="font-size:0.78rem; color:var(--accent);">${d.code || '—'}</code></td>
+        const isNew = !d._isBase;
+        return `<tr${isNew ? ' style="background:rgba(16,185,129,0.04);"' : ''}>
+            <td><code style="font-size:0.78rem; color:var(--accent);">${d.code || '—'}</code>${isNew ? ' <span style="font-size:0.68rem;color:var(--success);">●YENİ</span>' : ''}</td>
             <td><div style="font-weight:600;">${d.name}</div>${d.englishName ? `<div style="font-size:0.78rem;color:var(--text-muted);">${d.englishName}</div>` : ''}</td>
-            <td style="font-size:0.82rem;">${d.category || '—'}</td>
+            <td style="font-size:0.82rem;">${d.category || '—'}${d.subcategory ? `<div style="font-size:0.75rem;color:var(--text-muted);">${d.subcategory}</div>` : ''}</td>
             <td><span class="badge-pill ${prevClass}">${prevText}</span></td>
             <td><span class="badge-pill ${genderClass}">${genderText}</span></td>
             <td style="font-size:0.82rem; white-space:nowrap;">${d.ageRange ? `${d.ageRange.min}–${d.ageRange.max}` : '0–120'}</td>
-            <td style="font-size:0.82rem;">${(d.symptoms||[]).length + (d.signs||[]).length}</td>
+            <td style="font-size:0.82rem;">
+                <div>S: ${(d.symptoms||[]).length}</div>
+                <div style="color:var(--text-muted);">B: ${(d.signs||[]).length} L: ${(d.labFindings||[]).length}</div>
+            </td>
             <td>
                 <div style="display:flex;gap:0.4rem;">
-                    <button class="btn btn-ghost btn-sm" onclick="openEditDiseaseModal(${d._idx})">✏️</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteDisease(${d._idx})">🗑️</button>
+                    <button class="btn btn-ghost btn-sm" onclick="openEditDiseaseModal(${realIdx})">✏️</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteDisease(${realIdx})">🗑️</button>
                 </div>
             </td>
         </tr>`;
     }).join('');
 
-    // Pagination
+    // Smart pagination for 100+ pages
     const pag = document.getElementById('diseasePagination');
     pag.innerHTML = '';
     if (totalPages <= 1) return;
-    for (let i = 0; i < totalPages; i++) {
+
+    const totalEl = document.createElement('span');
+    totalEl.style.cssText = 'color:var(--text-muted);font-size:0.8rem;padding:0 0.5rem;align-self:center;';
+    totalEl.textContent = `${filtered.length} sonuç / ${totalPages} sayfa`;
+    pag.appendChild(totalEl);
+
+    const addBtn = (label, page, disabled) => {
         const btn = document.createElement('button');
-        btn.className = 'page-btn' + (i === diseasePage ? ' active' : '');
-        btn.textContent = i + 1;
-        btn.onclick = () => { diseasePage = i; renderDiseaseTable(); };
+        btn.className = 'page-btn' + (page === diseasePage ? ' active' : '');
+        btn.textContent = label;
+        btn.disabled = disabled;
+        if (!disabled) btn.onclick = () => { diseasePage = page; renderDiseaseTable(); };
         pag.appendChild(btn);
-        if (i > 8) { pag.appendChild(Object.assign(document.createElement('span'), { textContent: '…', style: 'color:var(--text-muted);padding:0 0.3rem;' })); break; }
+    };
+    const addEllipsis = () => {
+        const s = document.createElement('span');
+        s.textContent = '…';
+        s.style.cssText = 'color:var(--text-muted);padding:0 0.3rem;align-self:center;';
+        pag.appendChild(s);
+    };
+
+    addBtn('«', 0, diseasePage === 0);
+    addBtn('‹', diseasePage - 1, diseasePage === 0);
+
+    const range = [];
+    for (let i = 0; i < totalPages; i++) {
+        if (i === 0 || i === totalPages - 1 || Math.abs(i - diseasePage) <= 2) range.push(i);
     }
+    let prev = -1;
+    range.forEach(i => {
+        if (prev >= 0 && i - prev > 1) addEllipsis();
+        addBtn(i + 1, i, false);
+        prev = i;
+    });
+
+    addBtn('›', diseasePage + 1, diseasePage === totalPages - 1);
+    addBtn('»', totalPages - 1, diseasePage === totalPages - 1);
 }
 
 function openAddDiseaseModal() {
     editingDiseaseIdx = -1;
-    dSymptoms = []; dSigns = []; dLabFindings = [];
+    dSymptoms = []; dSigns = []; dLabFindings = []; dComplications = []; dTreatment = []; dPathologyArr = [];
     document.getElementById('diseaseModalTitle').textContent = '+ Yeni Hastalık Ekle';
-    ['dName','dCode','dEnglishName','dCategory','dSubcategory','dCourse'].forEach(id => document.getElementById(id).value = '');
+    ['dName','dCode','dEnglishName','dCategory','dSubcategory','dCourse','dRadiology'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('dPrevalence').value = 'medium';
     document.getElementById('dGender').value = 'both';
     document.getElementById('dAgeMin').value = 0;
     document.getElementById('dAgeMax').value = 120;
-    document.getElementById('dPathology').value = '';
-    document.getElementById('dRadiology').value = '';
     renderDiseaseTagContainers();
     document.getElementById('diseaseModal').classList.add('show');
 }
@@ -1128,12 +1216,14 @@ function openEditDiseaseModal(idx) {
     document.getElementById('dGender').value = d.gender || 'both';
     document.getElementById('dAgeMin').value = d.ageRange ? d.ageRange.min : 0;
     document.getElementById('dAgeMax').value = d.ageRange ? d.ageRange.max : 120;
-    document.getElementById('dPathology').value = d.pathologyNotes || '';
     document.getElementById('dRadiology').value = d.radiologyNotes || '';
     document.getElementById('dCourse').value = d.course || '';
     dSymptoms = [...(d.symptoms || [])];
     dSigns = [...(d.signs || [])];
     dLabFindings = [...(d.labFindings || [])];
+    dComplications = [...(d.complications || [])];
+    dTreatment = [...(d.treatment || [])];
+    dPathologyArr = [...(d.pathologyArr || [])];
     renderDiseaseTagContainers();
     document.getElementById('diseaseModal').classList.add('show');
 }
@@ -1146,6 +1236,9 @@ function renderDiseaseTagContainers() {
     renderTagContainer('dSymptomsContainer', dSymptoms, 'dSymptoms');
     renderTagContainer('dSignsContainer', dSigns, 'dSigns');
     renderTagContainer('dLabFindingsContainer', dLabFindings, 'dLabFindings');
+    renderTagContainer('dComplicationsContainer', dComplications, 'dComplications');
+    renderTagContainer('dTreatmentContainer', dTreatment, 'dTreatment');
+    renderTagContainer('dPathologyContainer', dPathologyArr, 'dPathologyArr');
 }
 
 function renderTagContainer(containerId, arr, arrName) {
@@ -1155,9 +1248,18 @@ function renderTagContainer(containerId, arr, arrName) {
 }
 
 function removeTag(arrName, idx) {
-    if (arrName === 'dSymptoms') { dSymptoms.splice(idx, 1); renderTagContainer('dSymptomsContainer', dSymptoms, 'dSymptoms'); }
-    if (arrName === 'dSigns') { dSigns.splice(idx, 1); renderTagContainer('dSignsContainer', dSigns, 'dSigns'); }
-    if (arrName === 'dLabFindings') { dLabFindings.splice(idx, 1); renderTagContainer('dLabFindingsContainer', dLabFindings, 'dLabFindings'); }
+    const map = {
+        dSymptoms: [dSymptoms, 'dSymptomsContainer'],
+        dSigns: [dSigns, 'dSignsContainer'],
+        dLabFindings: [dLabFindings, 'dLabFindingsContainer'],
+        dComplications: [dComplications, 'dComplicationsContainer'],
+        dTreatment: [dTreatment, 'dTreatmentContainer'],
+        dPathologyArr: [dPathologyArr, 'dPathologyContainer']
+    };
+    if (map[arrName]) {
+        map[arrName][0].splice(idx, 1);
+        renderTagContainer(map[arrName][1], map[arrName][0], arrName);
+    }
 }
 
 function addDiseaseSymptom() {
@@ -1181,12 +1283,33 @@ function addDiseaseLabFinding() {
     document.getElementById('dLabInput').value = '';
 }
 
+function addDiseaseComplication() {
+    const v = document.getElementById('dComplicationsInput').value.trim();
+    if (!v) return;
+    if (!dComplications.includes(v)) { dComplications.push(v); renderTagContainer('dComplicationsContainer', dComplications, 'dComplications'); }
+    document.getElementById('dComplicationsInput').value = '';
+}
+
+function addDiseaseTreatment() {
+    const v = document.getElementById('dTreatmentInput').value.trim();
+    if (!v) return;
+    if (!dTreatment.includes(v)) { dTreatment.push(v); renderTagContainer('dTreatmentContainer', dTreatment, 'dTreatment'); }
+    document.getElementById('dTreatmentInput').value = '';
+}
+
+function addDiseasePathology() {
+    const v = document.getElementById('dPathologyInput').value.trim();
+    if (!v) return;
+    if (!dPathologyArr.includes(v)) { dPathologyArr.push(v); renderTagContainer('dPathologyContainer', dPathologyArr, 'dPathologyArr'); }
+    document.getElementById('dPathologyInput').value = '';
+}
+
 function saveDiseaseModal() {
     const name = document.getElementById('dName').value.trim();
     if (!name) { toast('Hastalık adı zorunludur', 'error'); return; }
 
     const obj = {
-        code: document.getElementById('dCode').value.trim() || ('NEW' + Date.now().toString().slice(-4)),
+        code: document.getElementById('dCode').value.trim() || ('NEW-' + Date.now().toString().slice(-6)),
         name,
         englishName: document.getElementById('dEnglishName').value.trim(),
         category: document.getElementById('dCategory').value.trim() || 'Genel',
@@ -1200,29 +1323,60 @@ function saveDiseaseModal() {
         symptoms: [...dSymptoms],
         signs: [...dSigns],
         labFindings: [...dLabFindings],
-        pathologyNotes: document.getElementById('dPathology').value.trim(),
+        pathologyArr: [...dPathologyArr],
         radiologyNotes: document.getElementById('dRadiology').value.trim(),
-        course: document.getElementById('dCourse').value.trim()
+        course: document.getElementById('dCourse').value.trim(),
+        complications: [...dComplications],
+        treatment: [...dTreatment]
     };
 
     if (editingDiseaseIdx === -1) {
-        localDiseases.push(obj);
+        // New disease
+        obj._isBase = false;
+        obj._baseId = null;
+        localDiff.added.push(obj);
         toast('Hastalık eklendi: ' + name);
     } else {
-        localDiseases[editingDiseaseIdx] = obj;
+        const existing = localDiseases[editingDiseaseIdx];
+        obj._isBase = existing._isBase;
+        obj._baseId = existing._baseId;
+
+        if (existing._isBase) {
+            // Modifying a base disease — store in diff.modified
+            localDiff.modified[existing._baseId] = obj;
+        } else {
+            // Modifying an added disease — update in diff.added
+            const addedIdx = localDiff.added.findIndex(d => d.code === existing.code && d.name === existing.name);
+            if (addedIdx >= 0) localDiff.added[addedIdx] = obj;
+            else localDiff.added.push(obj);
+        }
         toast('Hastalık güncellendi: ' + name);
     }
 
     saveDiseasesToStorage();
+    rebuildLocalDiseases();
     renderDiseaseTable();
     buildCategoryFilters();
     closeDiseaseModal();
 }
 
 function deleteDisease(idx) {
-    if (!confirm(`"${localDiseases[idx].name}" hastalığını silmek istediğinizden emin misiniz?`)) return;
-    localDiseases.splice(idx, 1);
+    const d = localDiseases[idx];
+    if (!confirm(`"${d.name}" hastalığını silmek istediğinizden emin misiniz?`)) return;
+
+    if (d._isBase) {
+        // Mark base disease as deleted in diff
+        localDiff.deleted[d._baseId] = true;
+        // Remove any pending modification for this id
+        delete localDiff.modified[d._baseId];
+    } else {
+        // Remove from diff.added
+        const addedIdx = localDiff.added.findIndex(a => a.code === d.code && a.name === d.name);
+        if (addedIdx >= 0) localDiff.added.splice(addedIdx, 1);
+    }
+
     saveDiseasesToStorage();
+    rebuildLocalDiseases();
     renderDiseaseTable();
     toast('Hastalık silindi', 'info');
 }
@@ -1461,8 +1615,13 @@ function saveProfile() {
 //  DATA MANAGEMENT
 // ══════════════════════════════════════════════════
 function exportDiseases() {
-    downloadJSON(localDiseases, 'hastalık_veritabanı_' + dateStr() + '.json');
-    toast('Hastalık veritabanı indirildi');
+    // Export full computed disease list (base + modifications - deletions + added)
+    const exportData = { diseases: localDiseases.map(d => {
+        const {_isBase, _baseId, ...clean} = d;
+        return clean;
+    })};
+    downloadJSON(exportData, 'hastalık_veritabanı_' + dateStr() + '.json');
+    toast(`${localDiseases.length} hastalık indirildi`);
 }
 
 function exportSymptoms() {
@@ -1494,16 +1653,8 @@ function importData() {
     reader.onload = e => {
         try {
             const data = JSON.parse(e.target.result);
-            if (Array.isArray(data)) {
-                localDiseases = data;
-                saveDiseasesToStorage();
-                toast(`${data.length} hastalık içe aktarıldı`);
-                renderDiseaseTable();
-            } else if (data.diseases) {
-                localDiseases = data.diseases.map(transformForAdmin);
-                saveDiseasesToStorage();
-                toast(`${localDiseases.length} hastalık içe aktarıldı`);
-            } else if (data.config) {
+            if (data.config) {
+                // Algorithm config import
                 localConfig = data.config;
                 localRules = data.rules || localRules;
                 saveConfigToStorage();
@@ -1512,7 +1663,28 @@ function importData() {
                 loadAlgorithmForm();
                 loadRules();
             } else {
-                toast('Desteklenmeyen format', 'error');
+                // Disease import: treat all as "added" diseases (override base)
+                const list = Array.isArray(data) ? data : (data.diseases || []);
+                // Store as complete override: clear diff and add all as modified
+                localDiff = { modified: {}, deleted: {}, added: [] };
+                list.forEach(raw => {
+                    const d = transformForAdmin(raw);
+                    if (d.code && getBaseDB()?.diseases?.find(b => b.id === d.code)) {
+                        // Exists in base — store as modification
+                        localDiff.modified[d.code] = d;
+                    } else {
+                        // New disease
+                        d._isBase = false;
+                        d._baseId = null;
+                        localDiff.added.push(d);
+                    }
+                });
+                saveDiseasesToStorage();
+                rebuildLocalDiseases();
+                renderDiseaseTable();
+                buildCategoryFilters();
+                renderDashboard();
+                toast(`${localDiseases.length} hastalık içe aktarıldı`);
             }
         } catch { toast('JSON parse hatası', 'error'); }
     };
@@ -1520,12 +1692,14 @@ function importData() {
 }
 
 function resetDiseasesDB() {
-    if (!confirm('Hastalık veritabanını tamamen sıfırlamak istediğinizden emin misiniz? Bu işlem geri alınamaz!')) return;
+    if (!confirm('Tüm değişiklikleri sıfırlayıp orijinal veritabanına dönmek istediğinizden emin misiniz?')) return;
     localStorage.removeItem(LS_KEYS.diseaseDB);
-    localDiseases = [];
+    localDiff = { modified: {}, deleted: {}, added: [] };
+    rebuildLocalDiseases();
     renderDiseaseTable();
+    buildCategoryFilters();
     renderDashboard();
-    toast('Hastalık veritabanı sıfırlandı', 'info');
+    toast(`Veritabanı sıfırlandı — ${localDiseases.length} orijinal hastalık yüklendi`, 'info');
 }
 
 function resetAlgorithmConfig() {
@@ -1548,16 +1722,21 @@ function resetAll() {
 // ══════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════
-window.onload = () => {
-    // Try to load veritabani.js if not already in window
-    if (!window.diseaseDB) {
-        const s = document.createElement('script');
-        s.src = '../veritabani.js';
-        s.onerror = () => { const s2 = document.createElement('script'); s2.src = 'veritabani.js'; document.head.appendChild(s2); };
-        document.head.appendChild(s);
-    }
-    checkAuth();
-};
+function getBaseDB() {
+    try { if (window.diseaseDB?.diseases) return window.diseaseDB; } catch {}
+    try { if (typeof diseaseDB !== 'undefined' && diseaseDB?.diseases) return diseaseDB; } catch {}
+    return null;
+}
+
+function loadFallbackDB() {
+    // ../veritabani.js yüklenemezse aynı klasörden dene
+    const s = document.createElement('script');
+    s.src = 'veritabani.js';
+    document.head.appendChild(s);
+}
+
+window.onload = () => { checkAuth(); };
+
 </script>
 </body>
 </html>
