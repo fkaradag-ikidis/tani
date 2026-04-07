@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Paneli | Semptomdan Tanıya</title>
-    <!-- veritabani.js statik olarak yükleniyor — dinamik inject GitHub Pages'ta çalışmıyor -->
-    <script src="../veritabani.js" onerror="loadFallbackDB()"></script>
     <style>
         :root {
             --primary: #1e3a8a;
@@ -1723,19 +1721,50 @@ function resetAll() {
 //  INIT
 // ══════════════════════════════════════════════════
 function getBaseDB() {
-    try { if (window.diseaseDB?.diseases) return window.diseaseDB; } catch {}
-    try { if (typeof diseaseDB !== 'undefined' && diseaseDB?.diseases) return diseaseDB; } catch {}
+    try { if (window.diseaseDB?.diseases?.length) return window.diseaseDB; } catch {}
+    try { if (typeof diseaseDB !== 'undefined' && diseaseDB?.diseases?.length) return diseaseDB; } catch {}
     return null;
 }
 
-function loadFallbackDB() {
-    // ../veritabani.js yüklenemezse aynı klasörden dene
-    const s = document.createElement('script');
-    s.src = 'veritabani.js';
-    document.head.appendChild(s);
-}
+function loadFallbackDB() {}  // no-op, kept for compatibility
 
-window.onload = () => { checkAuth(); };
+// ══════════════════════════════════════════════════
+//  INIT — sıralı path denemesiyle veritabani.js yükle
+// ══════════════════════════════════════════════════
+window.onload = () => {
+    if (getBaseDB()) { checkAuth(); return; }
+
+    // GitHub Pages'ta admin.html'nin konumuna göre farklı relative path'ler dene
+    const paths = [
+        'veritabani.js',
+        '../veritabani.js',
+        '../../veritabani.js',
+        '/tani/veritabani.js'
+    ];
+    let idx = 0;
+
+    function tryNext() {
+        if (getBaseDB()) { checkAuth(); return; }
+        if (idx >= paths.length) {
+            // Hiçbir path çalışmadı — UI'ı aç, hata göster
+            checkAuth();
+            setTimeout(() => toast('⚠️ veritabani.js yüklenemedi — hastalık verisi yok', 'error'), 1000);
+            return;
+        }
+        const src = paths[idx++];
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => {
+            if (getBaseDB()) { checkAuth(); }
+            else { tryNext(); }  // yüklendi ama veri yok, sonraki path'i dene
+        };
+        s.onerror = tryNext;
+        document.head.appendChild(s);
+    }
+
+    tryNext();
+};
+
 
 </script>
 </body>
