@@ -1,110 +1,61 @@
 /**
- * algoritma.js
- * Semptomdan Tanıya - Klinik Karar Destek Sistemi
- * Dr. Feridun Karadağ - v3.0
- * Algoritma Motoru: Semptom + Lab + Prevalans Ağırlıklı Skorlama
+ * ============================================================
+ * ALGORİTMA.JS — Semptomdan Tanıya Klinik Karar Destek Motoru
+ * © 2024-2026 Dr. Feridun Karadağ — Tüm Hakları Saklıdır
+ * ============================================================
  */
 
 // ==========================================
-// ALGORİTMA KONFİGÜRASYONU (Admin panelden değiştirilebilir)
+// ALGORİTMA YAPILANDIRMASI (Admin Panelinden Değiştirilebilir)
 // ==========================================
-
-const DEFAULT_ALGORITHM_CONFIG = {
-    // Skor ağırlıkları (toplamı 100 olmalı)
-    symptomWeight:    0.50,   // Semptom ağırlığı %50
-    labWeight:        0.20,   // Laboratuvar ağırlığı %20
-    prevalenceWeight: 0.30,   // Prevalans ağırlığı %30
-
-    // Prevalans skorları
+let algorithmConfig = {
+    weights: {
+        symptom: 0.50,      // %50 Semptom uyumu
+        prevalence: 0.30,   // %30 Prevalans
+        lab: 0.20           // %20 Lab uyumu
+    },
+    thresholds: {
+        minScore: 15,               // Listelenme için minimum skor
+        highPrevalenceMinSymptom: 20, // Yüksek prevalanslı hastalık minimum semptom skoru
+        maxResults: 20              // Gösterilecek maksimum sonuç
+    },
     prevalenceScores: {
-        high:   100,
-        medium:  60,
-        low:     30,
-        rare:    10
+        high: 100,
+        medium: 60,
+        low: 30,
+        rare: 10
     },
-
-    // Minimum toplam skor eşiği (bu altı gösterilmez)
-    minTotalScore: 15,
-
-    // Maksimum gösterilecek sonuç sayısı
-    maxResults: 20,
-
-    // Cinsiyet filtreleri
     genderFilters: {
-        enabled: true,
-        // Erkekte çıkmayacak kategoriler
-        maleExcludeCategories: ['Jinekoloji'],
-        // Kadında çıkmayacak kategoriler (prostat vb.)
-        femaleExcludeCategories: [],
-        // Erkekte çıkmayacak anahtar kelimeler (hastalık adında geçenler)
-        maleExcludeKeywords: ['Uterus', 'Ovar', 'Vajin', 'Rahim', 'Serviks', 'Vulva', 'Endometri', 'Plasenta', 'Gebelik', 'Eklamsi', 'Menstrü'],
-        // Kadında çıkmayacak anahtar kelimeler
-        femaleExcludeKeywords: ['Prostat', 'Testis', 'Penis', 'Epididim']
+        enabled: true,              // Cinsiyet filtresi etkin
+        strictMode: true            // Kesin filtreleme (erkekte jinekoloji çıkmasın)
     },
-
-    // Yaş grubu filtreleri
-    ageGroupFilters: {
-        enabled: true,
-        // Yenidoğan (0-1 ay)
-        newbornMaxAge: 0.08,   // ~1 ay
-        // Pediatrik (0-17)
-        pediatricMaxAge: 17,
-        // Geriatrik başlangıcı
-        geriatricMinAge: 65,
-
-        // Bu kategoriler sadece pediatride görülür → erişkinde çıkmaz
-        pediatricOnlyCategories: ['Pediatri'],
-        pediatricOnlyKeywords: ['Yenidoğan', 'Pediatrik', 'Çocukluk çağı', 'Konjenital'],
-
-        // Bu kategoriler sadece erişkinde görülür → pediatride çıkmaz
-        adultOnlyMinAge: 18,
-        adultOnlyCategories: [],
-        adultOnlyKeywords: ['Menopoz', 'Prostat', 'Koroner', 'Ateroskleroz']
+    ageFilters: {
+        enabled: true,              // Yaş filtresi etkin
+        pediatricMaxAge: 18,        // Pediatrik hastalık üst yaş sınırı
+        neonatalMaxAge: 1,          // Yenidoğan üst yaş sınırı
+        geriatricMinAge: 65         // Geriatrik başlangıç yaşı
     },
-
-    // Ek prevalans düzeltmeleri
-    prevalenceAdjustments: {
-        // Kardiyovasküler hastalıklar → 60 yaş üstünde prevalansı artır
-        kardiyovaskulerAgeBonus: { category: 'Kardiyovasküler Hastalıklar', minAge: 60, bonus: 15 },
-        // Pediatrik hastalıklar → erişkinde prevalansı sıfırla
-        pediatriAdultPenalty: { category: 'Pediatri', minAge: 18, score: 0 }
+    categoryRules: [
+        // Özel kural: Erkekte jinekoloji tanısı çıkmasın
+        { category: 'Jinekoloji', allowedGender: 'kadın', minAge: 0, maxAge: 120 },
+        // Özel kural: Kadında üroloji (erkek spesifik) çıkmasın
+        { category: 'Erkek Üroloji', allowedGender: 'erkek', minAge: 0, maxAge: 120 },
+        // Özel kural: Pediatrik hastalıklar erişkinde çıkmasın
+        { category: 'Pediatri', allowedGender: 'both', minAge: 0, maxAge: 18 },
+        // Özel kural: Neonatal hastalıklar sadece yenidoğanda
+        { category: 'Neonatal', allowedGender: 'both', minAge: 0, maxAge: 1 }
+    ],
+    prevalenceBonus: {
+        // Yaşa göre prevalans bonusu
+        cardiovascularOlderBonus: { minAge: 60, category: 'Kardiyovasküler', bonus: 10 },
+        diabetesOlderBonus: { minAge: 45, category: 'Endokrin', bonus: 5 }
     }
 };
 
-// localStorage'dan config'i yükle (admin değişiklikleri)
-function loadAlgorithmConfig() {
-    try {
-        const saved = localStorage.getItem('adminAlgorithmConfig');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            // Deep merge
-            return deepMerge(DEFAULT_ALGORITHM_CONFIG, parsed);
-        }
-    } catch(e) {
-        console.warn('Algorithm config yüklenemedi, varsayılan kullanılıyor:', e);
-    }
-    return JSON.parse(JSON.stringify(DEFAULT_ALGORITHM_CONFIG));
-}
-
-function deepMerge(target, source) {
-    const result = Object.assign({}, target);
-    for (const key of Object.keys(source)) {
-        if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-            result[key] = deepMerge(target[key] || {}, source[key]);
-        } else {
-            result[key] = source[key];
-        }
-    }
-    return result;
-}
-
-let algorithmConfig = loadAlgorithmConfig();
-
 // ==========================================
-// SEMPTOM VERİTABANI (400+ Semptom - 12 Sistem)
+// SEMPTOM VERİTABANI (400+ Semptom - 13 Sistem)
 // ==========================================
-
-const symptomDatabase = {
+let symptomDatabase = {
     'GenelSistemik': [
         "Ateş", "Titreme (Rigor)", "Halsizlik", "Yorgunluk (Fatigue)", "Kilo kaybı (istemsiz)", "Kilo alma (hızlı)",
         "İştahsızlık (Anoreksi)", "Aşırı iştah (Hiperoreksi)", "Gece terlemesi", "Soğuk terleme", "Bilinç bulanıklığı",
@@ -164,57 +115,51 @@ const symptomDatabase = {
         "Nöbet (Konvülsiyon)", "Tonik-klonik nöbet (sara nöbeti)", "Apsans nöbet (kısa dalgınlık)",
         "Parsiyel nöbet (fokal)", "Parestezi (uyuşma-karıncalanma)", "Uyuşma (Hiposteji)",
         "Karıncalanma (Tingling)", "Hiperestezi (aşırı duyarlılık)", "Güçsüzlük (parezi)",
-        "Hemiparezi (tek taraf güçsüzlük)", "Paraparezi (bacak güçsüzlüğü)",
-        "Tetraparezi (4 ekstremite güçsüzlüğü)", "Monoparezi (tek ekstremite)", "Plejia (felç)",
+        "Hemiparezi (tek taraf güçsüzlük)", "Paraparezi (bacak güçsüzlüğü)", "Tetraparezi (4 ekstremite güçsüzlüğü)",
         "Hemiplejia (tek taraf felç)", "Fasial paralizi (yüz felci)", "Bell paralizisi (periferik yüz felci)",
-        "Diplopi (çift görme)", "Görme bulanıklığı", "Skuotoma (görme alanı kaybı)", "Hemianopsi (yarım görme)",
-        "Nistagmus (göz titremesi)", "Afazi (konuşma bozukluğu)", "Broca afazisi (anlayan ama konuşamayan)",
-        "Wernicke afazisi (konuşan ama anlamayan)", "Dizartri (söyleniş bozukluğu)",
+        "Diplopi (çift görme)", "Görme bulanıklığı", "Hemianopsi (yarım görme)", "Nistagmus (göz titremesi)",
+        "Afazi (konuşma bozukluğu)", "Broca afazisi (anlayan ama konuşamayan)", "Dizartri (söyleniş bozukluğu)",
         "Disfaji (yutma güçlüğü)", "Romberg pozitifliği (göz kapalı dengesizlik)", "Babinski pozitifliği",
         "Menenjeal irritasyon (ense sertliği)", "Kernig işareti", "Brudzinski işareti",
-        "Fotofobi (ışık korkusu)", "Fonofobi (ses korkusu)", "Rigidity (kas sertliği)",
-        "Beyin ödemi bulguları (papil ödem, Cushing triadı)"
+        "Fotofobi (ışık korkusu)", "Fonofobi (ses korkusu)", "Rigidity (kas sertliği)"
     ],
     'Endokrin': [
         "Poliüri (çok idrar)", "Polidipsi (çok su içme)", "Polifaji (çok yeme)",
         "Kilo kaybı (aşırı iştahla birlikte)", "Soğuğa tahammülsüzlük", "Sıcağa tahammülsüzlük",
         "Terleme (Hiperhidroz)", "Aşırı terleme", "Hipertiroidi bulguları (gözlerde büyüme, el titremesi)",
-        "Hipotiroidi bulguları (şişlik, yorgunluk)", "Guatr (boyun şişliği - tiroid)", "Tremor (el titremesi - ince)",
-        "Kaba tremor (hipoglisemi tremoru)", "Taşikardi (tiroid kaynaklı)", "Bradikardi (hipotiroidi)",
-        "Osteoporoz ağrısı (kemik ağrısı)", "Patolojik kırık (düşük enerjili kırık)",
-        "Tiroid kaynaklı saç dökülmesi", "Menstrüel düzensizlik (Oligomenore)", "Amenore (adet görmeme)",
-        "Menoraji (ağır adet kanaması)", "Galaktore (süt gelmesi - hamile değilken)",
-        "Cinsel fonksiyon bozukluğu (ereksiyon bozukluğu)", "İktidarsızlık", "Libido değişikliği",
+        "Hipotiroidi bulguları (şişlik, yorgunluk)", "Guatr (boyun şişliği - tiroid)",
+        "Tremor (el titremesi - ince)", "Kaba tremor (hipoglisemi tremoru)", "Taşikardi (tiroid kaynaklı)",
+        "Bradikardi (hipotiroidi)", "Osteoporoz ağrısı (kemik ağrısı)", "Patolojik kırık (düşük enerjili kırık)",
+        "Tiroid kaynaklı saç dökülmesi", "Galaktore (süt gelmesi-hamile değilken)",
+        "Cinsel fonksiyon bozukluğu (ereksiyon bozukluğu)", "Libido değişikliği (cinsel istek)",
         "Gynecomastia (erkekte meme büyümesi)", "Hirsutism (kadında erkeksi kıllanma)",
         "Acanthosis nigricans (boyunda koyulaşma)", "Stria (karında çatlaklar)", "Obezite (metabolik)",
-        "Metabolik sendrom bulguları", "Hipoglisemi belirtileri (terleme, çarpıntı, açlık hissi)"
+        "Hipoglisemi belirtileri (terleme, çarpıntı, açlık hissi)"
     ],
     'Romatoloji': [
         "Eklem ağrısı (Artaralji)", "Eklem şişliği (Artrit)", "Morning stiffness (sabah tutukluğu)",
         "Hareket kısıtlılığı (ROM kısıtlılığı)", "Kontraktür (sözleşme)", "Deformite (şekil bozukluğu)",
         "Krepitasyon (eklemden ses)", "Kas ağrısı (Miyalji)", "Kas güçsüzlüğü (Miyopati)",
-        "Yaygın vücut ağrısı", "Fibromiyalji (yaygın ağrı + yorgunluk)", "Tetik noktalar (Fibromiyalji noktaları)",
+        "Yaygın vücut ağrısı", "Fibromiyalji (yaygın ağrı + yorgunluk)", "Tetik noktalar",
         "Sırt ağrısı (Lomber)", "Bel ağrısı (Lumbago)", "Boyun ağrısı (Servikalji)",
         "Radiküler ağrı (sinir kökü ağrısı - kol/bacağa vuran)", "Nöropatik ağrı (yanıcı-batıcı)",
         "Enflamatuvar belirtiler (kızarıklık-sıcaklık)", "Eklem üzeri cilt kızarıklığı",
-        "Eklem sıcaklığı artışı", "Romatoid nodül (dirsekte sert kitle)", "Heberden nodülü (el parmakları)",
+        "Romatoid nodül (dirsekte sert kitle)", "Heberden nodülü (el parmakları)",
         "Bouchard nodülü (el orta parmak eklemi)", "Sakroileit (bel omurgası ağrısı)",
-        "Omurga tutulumu (sabitlik)", "Spondiloz (dejenerasyon)", "Spondilolistezis (omurga kayması)",
-        "Skolyoz (yan eğrilik)", "Kifoz (kamburluk)", "Lordoz (belde aşırı içbükeylik)"
+        "Omurga tutulumu (sabitlik)", "Spondiloz (dejenerasyon)", "Skolyoz (yan eğrilik)", "Kifoz (kamburluk)"
     ],
     'Dermatoloji': [
         "Pruritus (Kaşıntı)", "Eritema (Kızarıklık)", "Makül (düz leke)", "Papül (kabarık leke)",
         "Vezikül (su kabarcığı)", "Büll (büyük su kabarcığı)", "Püstül (irinli kabarcık)",
         "Kabuk (Eroziyon üzeri)", "Erozyon (yüzeysel yara)", "Ülser (derin yara)",
-        "Nekroz (doku ölümü-siyah)", "Skar (yara izi)", "Atrofi (incelme)", "Likenifikasyon (kalınlaşma)",
+        "Nekroz (doku ölümü-siyah)", "Skar (yara izi)", "Likenifikasyon (kalınlaşma)",
         "Maküler döküntü (düz kızarıklık)", "Papüler döküntü (kabarcıklı)", "Makulopapüler döküntü (karışık)",
         "Ürtiker (kurdeşen-beyaz kabarıklık)", "Anjiyödem (derin ödem-dudak/şişlik)", "Purpura (kanama)",
-        "Petechia (nokta kanama)", "Eşimoz (morluk)", "Hematoma (kaba kanama)", "Sarılık (cilt sararması)",
+        "Petechia (nokta kanama)", "Eşimoz (morluk)", "Sarılık (cilt sararması)",
         "Hipopigmentasyon (beyazlaşma-Vitiligo)", "Hiperpigmentasyon (kararma-Melazma)",
         "Alopesia (saç dökülmesi)", "Onikoliz (tırnak ayrılması)", "Onikomikoz (tırnak mantarı)",
-        "Paroniji (tırnak eti iltihabı)", "Psoriazis (sedef-kırmızı gümüş)", "Liken planus (düz liken-mor papül)",
-        "Akne (sivilce)", "Rosacea (gül hastalığı)", "Furunkül (çıban)", "Karbunkül (birleşik çıban)",
-        "Selülit (cilt altı iltihabı)", "Abse (apse)", "Hidradenitis suppurativa (koltuk altı apseleşmesi)"
+        "Psoriazis (sedef-kırmızı gümüş)", "Liken planus (düz liken-mor papül)",
+        "Akne (sivilce)", "Rosacea (gül hastalığı)", "Furunkül (çıban)", "Selülit (cilt altı iltihabı)"
     ],
     'Üroloji': [
         "Dizüri (yanma-idrar yaparken ağrı)", "Ağrılı idrar", "Pollaküri (sık idrara çıkma)",
@@ -225,11 +170,9 @@ const symptomDatabase = {
         "Damlama (idrar sonrası damlama)", "Üretral akıntı", "Hematuri (kanlı idrar)",
         "Kolik ağrı (böbrek taşı ağrısı-dalga dalga)", "Flank ağrısı (bel yan taraf ağrısı)",
         "Suprapubik ağrı (kasık üstü ağrı)", "Akut idrar retansiyonu (idrar yapamama)",
-        "Kronik retansiyon (tam boşaltamama)", "Prostat ağrısı (perende arası)",
-        "Erektil disfonksiyon (sertleşme bozukluğu)", "Priapizm (ağrılı sürekli sertleşme)",
-        "Hematospermia (menide kan)", "Epididim ağrısı (testis üstü)", "Orşit (testis iltihabı)",
-        "Orkialji (testis ağrısı)", "Skrotal şişlik (torbada şişlik)",
-        "Hidrosel (torbada su toplanması)", "Varikosel (damar genişlemesi-testis üstü)"
+        "Prostat ağrısı (perende arası)", "Erektil disfonksiyon (sertleşme bozukluğu)",
+        "Epididim ağrısı (testis üstü)", "Orşit (testis iltihabı)", "Orkialji (testis ağrısı)",
+        "Skrotal şişlik (torbada şişlik)", "Hidrosel (torbada su toplanması)"
     ],
     'Jinekoloji': [
         "Vajinal akıntı (flor)", "Flor değişikliği (renk-koku)", "Vajinit (vajina iltihabı)",
@@ -240,10 +183,9 @@ const symptomDatabase = {
         "Oligomenore (seyrek adet)", "Polimenore (sık adet)", "Premenstrual sendrom (PMS)",
         "Pelvik ağrı (alt karın ağrısı)", "Kronik pelvik ağrı", "Ovulasyon ağrısı (Mittelschmerz)",
         "Lekelenme (Spotting-ara kanama)", "Menopoz semptomları (sıcak basması)", "Gece terlemesi (menopozal)",
-        "Vazomotor semptomlar (sıcak basması-terleme)", "Libido değişikliği",
-        "İnfertilite (kısırlık)", "Düşük tehdidi (vajinal kanama-karın ağrısı-gebelikte)",
-        "Gebelik bulantısı (Hyperemesis gravidarum-şiddetli)", "Gebelik hipertansiyonu (preeklampsi)",
-        "Eklampsi (nöbet geçirme-gebelikte)", "HELLP sendromu", "Gestasyonel diyabet (gebelik şekeri)"
+        "Libido değişikliği (cinsel istek azalması/artması)", "İnfertilite (kısırlık)",
+        "Düşük tehdidi (vajinal kanama-karın ağrısı-gebelikte)", "Gebelik bulantısı (Hyperemesis gravidarum)",
+        "Gebelik hipertansiyonu (preeklampsi)", "Gestasyonel diyabet (gebelik şekeri)"
     ],
     'Psikiyatri': [
         "Anksiyete (kaygı)", "Endişe", "Panik atak (ani korku-palpitesyon)", "Panik bozukluk",
@@ -251,17 +193,16 @@ const symptomDatabase = {
         "Obsesyon (takıntı düşünce)", "Kompulsiyon (takıntı davranış-tekrarlama)", "OCD (obsesif-kompulsif)",
         "Tik (motor-ses)", "Depresyon (Major depresif epizod)", "Mutsuzluk (Persistent)", "Anhedonia (zevk alamama)",
         "Umutsuzluk", "Değersizlik hissi", "Suçluluk hissi (aşırı)", "Psikomotor retardasyon (yavaşlama)",
-        "Psikomotor ajitasyon (hareketlilik)", "İnsomnia (uyuyamama)", "Uyku bozukluğu",
+        "Psikomotor ajitasyon (hareketlilik)", "İnsomnia (uyuyamama)", "Uyku bozukluğu", "Uykuya dalamama",
         "Erken uyanma (depresif)", "Hipersonnia (aşırı uyuma)", "Kabus (Rüya)", "Gece terörü (Night terror)",
-        "Somnambulizm (uyurgezerlik)", "Manik bulgular", "Efori (aşırı keyif)",
+        "Manik bulgular (kıpır kıpırlık)", "Efori (aşırı keyif)", "Huzursuzluk (manik)",
         "Halüsinasyon (sanrı duyu)", "İşitsel halüsinasyon (ses duyma)", "Görsel halüsinasyon (görme)",
-        "Sanrı (Delusion)", "Perseküsyon sanrısı (zarar verme sanrısı)",
-        "Demans bulguları (bellek kaybı-kişilik değişimi)", "Anterograde amnezi (yeni öğrenememe)",
-        "Retrograde amnezi (geçmişi hatırlayamama)", "Anoreksia nervosa (aşırı zayıflama-korku)",
-        "Bulimia nervosa (tıkınıp çıkarma)", "Binge eating (tıkınırcasına yeme)",
-        "Madde kullanımı bağımlılığı", "Yoksunluk bulguları (withdrawal)", "İntihar düşüncesi",
-        "Agresiflik (saldırganlık)", "Impulsivite (dürtüsellik)",
-        "Dikkat dağınıklığı (Attention deficit)", "Hiperaktivite (Hyperactivity)"
+        "Sanrı (Delusion)", "Perseküsyon sanrısı (zarar verme sanrısı)", "Demans bulguları (bellek kaybı)",
+        "Anterograde amnezi (yeni öğrenememe)", "Retrograde amnezi (geçmişi hatırlayamama)",
+        "Anoreksia nervosa (aşırı zayıflama-korku)", "Bulimia nervosa (tıkınıp çıkarma)",
+        "Madde kullanımı bağımlılığı", "Yoksunluk bulguları (withdrawal)", "İntihar düşüncesi (Suisid ideasyon)",
+        "Agresiflik (saldırganlık)", "Impulsivite (dürtüsellik)", "Dikkat dağınıklığı (Attention deficit)",
+        "Hiperaktivite (Hyperactivity)"
     ],
     'Hematoloji': [
         "Pallor (cilt solukluğu)", "Yorgunluk (Kronik anemi)", "Halsizlik (ağır anemi)",
@@ -270,69 +211,420 @@ const symptomDatabase = {
         "Purpura (deri altı kanamalar)", "Eşimoz (morluklar)", "Epistaksis (burun kanaması-tekrarlayan)",
         "Gingival kanama (diş eti kanaması)", "Hemoptizi (kanlı balgam-koagülopati)", "Melena (siyah dışkı)",
         "Hematokezya (dışkıda kan)", "Hematuri (idrar kanı)", "Menoraji (aşırı adet kanaması)",
-        "Metroraji (düzensiz ağır kanama)", "Hemartroz (eklem içi kanama)", "Spontan hematom (nedensiz morluk)",
-        "Enjeksiyon yerinde aşırı kanama", "Gece terlemesi (hematolojik-lenfoma)", "Kilo kaybı (hematolojik)",
-        "Lenfadenopati (genelleşmiş-büyümüş lenf nodları)", "Hepatosplenomegali (karaciğer-dalak büyümesi)",
-        "Kemik ağrısı (sternum-tibia)", "Sternal hassasiyet (kemik iliği basıncı)",
-        "Pika (anormal yeme-toprak-kil)", "Pagofaji (buz yeme-demir eksikliği)"
+        "Hemartroz (eklem içi kanama)", "Spontan hematom (nedensiz morluk)", "Enjeksiyon yerinde aşırı kanama",
+        "Gece terlemesi (hematolojik-lenfoma)", "Kilo kaybı (hematolojik)", "Lenfadenopati (genelleşmiş)",
+        "Hepatosplenomegali (karaciğer-dalak büyümesi)", "Kemik ağrısı (sternum-tibia)",
+        "Sternal hassasiyet (kemik iliği basıncı)", "Pika (anormal yeme-toprak-kil)", "Pagofaji (buz yeme-demir eksikliği)"
     ]
 };
 
-// Semptom eş anlamlıları (anamnez analizi için)
-const SYMPTOM_SYNONYMS = {
-    'baş ağrısı': ['başım ağrıyor', 'baş ağrısı', 'migren', 'şiddetli baş ağrısı', 'başın ağrıması'],
-    'göğüs ağrısı': ['göğsümde ağrı', 'göğüs ağrısı', 'kalbimde ağrı', 'sternum ağrı', 'göğsümde baskı'],
-    'nefes darlığı': ['nefes darlığı', 'soluk soluğa kalma', 'nefesim yetmiyor', 'dispne', 'nefes almakta zorlanıyorum'],
-    'karın ağrısı': ['karın ağrısı', 'karnımda ağrı', 'göbek ağrısı', 'batında ağrı'],
-    'bulantı': ['bulantı', 'midem bulanıyor', 'kusma hissi', 'mide bulantısı'],
-    'ateş': ['ateş', 'ateşim var', 'ısındım', 'titreme', 'harpasız ateş'],
-    'öksürük': ['öksürük', 'öksürüyorum', 'balgam', 'kuru öksürük'],
-    'şişlik': ['şişlik', 'ödem', 'şişme', 'topak'],
-    'kanama': ['kanama', 'kanıyor', 'kanlı', 'kan geliyor'],
-    'yorgunluk': ['yorgunluk', 'bitkinlik', 'halsizlik', 'takatsizlik'],
-    'baş dönmesi': ['baş dönmesi', 'sersemlik', 'denge kaybı'],
-    'ağrı': ['ağrı', 'ağrıyor', 'sancı', 'rahatsızlık']
-};
+// ==========================================
+// GLOBAL DURUM DEĞİŞKENLERİ
+// ==========================================
+let selectedSymptoms = [];
+let diseaseDatabase = [];
 
 // ==========================================
-// LABORATUVAR REFERANS DEĞERLERİ
+// VERİTABANI BAŞLATMA
 // ==========================================
 
-const LAB_REFERENCES = {
-    'wbc':        { min: 4,    max: 10,    name: 'WBC (10³/μL)' },
-    'hgb':        { min: 12,   max: 16,    name: 'Hemoglobin (g/dL)' },
-    'plt':        { min: 150,  max: 400,   name: 'Platelet (10³/μL)' },
-    'mcv':        { min: 80,   max: 100,   name: 'MCV (fL)' },
-    'crp':        { min: 0,    max: 5,     name: 'CRP (mg/L)' },
-    'esr':        { min: 0,    max: 20,    name: 'ESR (mm/h)' },
-    'glucose':    { min: 70,   max: 100,   name: 'Glukoz (mg/dL)' },
-    'urea':       { min: 10,   max: 50,    name: 'Üre (mg/dL)' },
-    'creatinine': { min: 0.6,  max: 1.2,   name: 'Kreatinin (mg/dL)' },
-    'ast':        { min: 0,    max: 40,    name: 'AST (U/L)' },
-    'alt':        { min: 0,    max: 40,    name: 'ALT (U/L)' },
-    'alp':        { min: 40,   max: 130,   name: 'ALP (U/L)' },
-    'bilirubin':  { min: 0.3,  max: 1.2,   name: 'Total Bilirubin (mg/dL)' },
-    'albumin':    { min: 3.5,  max: 5.0,   name: 'Albumin (g/dL)' },
-    'sodium':     { min: 135,  max: 145,   name: 'Sodyum (mEq/L)' },
-    'potassium':  { min: 3.5,  max: 5.0,   name: 'Potasyum (mEq/L)' },
-    'calcium':    { min: 8.5,  max: 10.5,  name: 'Kalsiyum (mg/dL)' },
-    'troponin':   { min: 0,    max: 0.014, name: 'Troponin (ng/L)' },
-    'bnp':        { min: 0,    max: 100,   name: 'BNP (pg/mL)' },
-    'tsh':        { min: 0.4,  max: 4.0,   name: 'TSH (mIU/L)' },
-    't4':         { min: 0.8,  max: 1.8,   name: 'Serbest T4 (ng/dL)' },
-    'tg':         { min: 0,    max: 150,   name: 'Trigliserid (mg/dL)' },
-    'ckmb':       { min: 0,    max: 25,    name: 'CK-MB (U/L)' },
-    'ddimer':     { min: 0,    max: 500,   name: 'D-Dimer (μg/mL)' },
-    'lactate':    { min: 0.5,  max: 2.2,   name: 'Laktat (mmol/L)' },
-    'cortisol':   { min: 6,    max: 23,    name: 'Kortizol (μg/dL)' },
-    'abgph':      { min: 7.35, max: 7.45,  name: 'Kan Gazı pH' },
-    'abgpo2':     { min: 80,   max: 100,   name: 'pO2 (mmHg)' },
-    'abgpco2':    { min: 35,   max: 45,    name: 'pCO2 (mmHg)' },
-    'abghco3':    { min: 22,   max: 26,    name: 'HCO3 (mEq/L)' }
-};
+function initDiseaseDatabase() {
+    // 1. Önce localStorage'dan admin tarafından kaydedilmiş DB'yi dene
+    try {
+        const savedDB = localStorage.getItem('adminDiseaseDB');
+        if (savedDB) {
+            const parsed = JSON.parse(savedDB);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                diseaseDatabase = parsed;
+                console.log(`✅ Hastalık DB localStorage'dan yüklendi: ${diseaseDatabase.length} hastalık`);
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn('localStorage okuma hatası:', e);
+    }
+
+    // 2. veritabani.js'den dönüştür (window.diseaseDB)
+    if (window.diseaseDB && window.diseaseDB.diseases && window.diseaseDB.diseases.length > 0) {
+        diseaseDatabase = window.diseaseDB.diseases.map(transformRawDisease);
+        console.log(`✅ Hastalık DB veritabani.js'den yüklendi: ${diseaseDatabase.length} hastalık`);
+        return;
+    }
+
+    // 3. Fallback: Temel örnek veri
+    console.warn('⚠️ Hastalık veritabanı bulunamadı. Örnek veriler yükleniyor.');
+    diseaseDatabase = getFallbackDiseases();
+}
+
+function transformRawDisease(raw) {
+    // veritabani.js formatını algoritma formatına dönüştür
+    const prevalenceMap = determinePrevalence(raw.category);
+    const genderMap = determineGender(raw.name, raw.category);
+    const ageRange = determineAgeRange(raw.category, raw.name);
+
+    return {
+        code: raw.id || ('NEW' + Math.random().toString(36).substr(2, 6).toUpperCase()),
+        name: raw.name || 'İsimsiz Hastalık',
+        englishName: raw.englishName || '',
+        category: raw.category || 'Genel',
+        subcategory: raw.subcategory || '',
+        prevalence: raw.prevalence || prevalenceMap,
+        symptoms: raw.symptoms || [],
+        signs: raw.signs || [],
+        labFindings: raw.labFindings || [],
+        labs: transformLabFindings(raw.labFindings || []),
+        pathology: raw.pathology || [],
+        radiology: raw.radiology || [],
+        pathologyNotes: (raw.pathology || []).join('; '),
+        radiologyNotes: (raw.radiology || []).join('; '),
+        ageRange: ageRange,
+        gender: raw.gender || genderMap,
+        course: raw.course || '',
+        complications: raw.complications || [],
+        treatment: raw.treatment || []
+    };
+}
+
+function determinePrevalence(category) {
+    const highPrevalence = ['Kardiyovasküler Hastalıklar', 'Endokrin Hastalıklar', 'Sindirim Sistemi Hastalıkları'];
+    const lowPrevalence = ['Neoplazmalar', 'Metabolik Hastalıklar'];
+    if (highPrevalence.some(c => category && category.includes(c.split(' ')[0]))) return 'high';
+    if (lowPrevalence.some(c => category && category.includes(c.split(' ')[0]))) return 'low';
+    return 'medium';
+}
+
+function determineGender(name, category) {
+    const femaleKeywords = ['Jinekoloji', 'Gebelik', 'Doğum', 'Menstrüal', 'Vajinal', 'Servikal', 'Uterin', 'Oofer', 'Tubal'];
+    const maleKeywords = ['Prostat', 'Testis', 'Erkek', 'Penis', 'Epididim'];
+    const nameLower = (name || '').toLowerCase();
+    const catLower = (category || '').toLowerCase();
+    if (femaleKeywords.some(k => nameLower.includes(k.toLowerCase()) || catLower.includes(k.toLowerCase()))) return 'kadın';
+    if (maleKeywords.some(k => nameLower.includes(k.toLowerCase()) || catLower.includes(k.toLowerCase()))) return 'erkek';
+    return 'both';
+}
+
+function determineAgeRange(category, name) {
+    const nameLower = (name || '').toLowerCase();
+    const catLower = (category || '').toLowerCase();
+    if (catLower.includes('neonatal') || nameLower.includes('yenidoğan') || nameLower.includes('konjenital')) {
+        return { min: 0, max: 1 };
+    }
+    if (catLower.includes('pediatri') || nameLower.includes('çocuk') || nameLower.includes('infantil')) {
+        return { min: 0, max: 18 };
+    }
+    if (nameLower.includes('erişkin')) {
+        return { min: 18, max: 120 };
+    }
+    return { min: 0, max: 120 };
+}
+
+function transformLabFindings(labFindings) {
+    const labs = {};
+    // Basit eşleşme sözlüğü
+    const labKeywords = {
+        'wbc': ['lökositoz', 'lökopeni', 'wbc', 'lökosit'],
+        'hgb': ['hemoglobin', 'anemi', 'hgb', 'hb'],
+        'plt': ['trombositopeni', 'trombositoz', 'platelet', 'trombosit'],
+        'crp': ['crp', 'c-reaktif'],
+        'esr': ['sedimentasyon', 'esr'],
+        'glucose': ['hiperglisemi', 'hipoglisemi', 'glukoz', 'kan şekeri'],
+        'creatinine': ['kreatinin', 'böbrek yetmezliği'],
+        'ast': ['ast', 'transaminaz'],
+        'alt': ['alt', 'transaminaz'],
+        'bilirubin': ['bilirubin', 'sarılık', 'ikter'],
+        'troponin': ['troponin'],
+        'bnp': ['bnp', 'nt-probnp'],
+        'tsh': ['tsh', 'tiroit', 'tiroid']
+    };
+
+    labFindings.forEach(finding => {
+        const findingLower = finding.toLowerCase();
+        Object.keys(labKeywords).forEach(labKey => {
+            if (labKeywords[labKey].some(kw => findingLower.includes(kw))) {
+                if (!labs[labKey]) {
+                    const isHigh = findingLower.includes('yüksek') || findingLower.includes('artmış') ||
+                        findingLower.includes('elevated') || findingLower.includes('+');
+                    const isLow = findingLower.includes('düşük') || findingLower.includes('azalmış') ||
+                        findingLower.includes('peni');
+                    labs[labKey] = {
+                        type: isHigh ? 'high' : isLow ? 'low' : 'high',
+                        weight: 15,
+                        name: labKey.toUpperCase()
+                    };
+                }
+            }
+        });
+    });
+    return labs;
+}
+
+function getFallbackDiseases() {
+    return [
+        {
+            code: 'J18.9', name: 'Pnömoni', category: 'Solunum Sistemi Hastalıkları', prevalence: 'high',
+            symptoms: ['Öksürük (ürün - balgamlı)', 'Ateş', 'Nefes darlığı (dispne)', 'Göğüs ağrısı (pleuritik - nefesle artan)', 'Halsizlik'],
+            labs: { crp: { type: 'high', weight: 20 }, wbc: { type: 'high', weight: 15 } },
+            ageRange: { min: 0, max: 120 }, gender: 'both'
+        },
+        {
+            code: 'I21.9', name: 'Akut Miyokard Enfarktüsü', category: 'Kardiyovasküler Hastalıklar', prevalence: 'high',
+            symptoms: ['Göğüs ağrısı (baskı hissi)', 'Terleme (Hiperhidroz)', 'Nefes darlığı (dispne)', 'Bulantı (Nausea)', 'Senkop (bayılma)'],
+            labs: { troponin: { type: 'high', weight: 30 }, bnp: { type: 'high', weight: 10 } },
+            ageRange: { min: 18, max: 120 }, gender: 'both'
+        }
+    ];
+}
 
 // ==========================================
-// LAB DEĞERİ OKUMA FONKSİYONLARI
+// ALGORİTMA AYARLARI YÜKLEME
+// ==========================================
+
+function initAlgorithmConfig() {
+    try {
+        const saved = localStorage.getItem('adminAlgorithmConfig');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            // Deep merge
+            algorithmConfig = deepMerge(algorithmConfig, parsed);
+            console.log('✅ Algoritma ayarları localStorage\'dan yüklendi');
+        }
+    } catch (e) {
+        console.warn('Algoritma config yükleme hatası:', e);
+    }
+}
+
+function deepMerge(target, source) {
+    const result = { ...target };
+    Object.keys(source).forEach(key => {
+        if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+            result[key] = deepMerge(target[key] || {}, source[key]);
+        } else {
+            result[key] = source[key];
+        }
+    });
+    return result;
+}
+
+// ==========================================
+// BAŞLATMA
+// ==========================================
+
+function initApp() {
+    initAlgorithmConfig();
+    initDiseaseDatabase();
+    renderSymptoms('GenelSistemik');
+    updateBMICalculation();
+    setInterval(updateBMICalculation, 1000);
+}
+
+// ==========================================
+// BMI & HASTA VERİSİ
+// ==========================================
+
+function updateBMICalculation() {
+    const height = parseFloat(document.getElementById('patientHeight')?.value);
+    const weight = parseFloat(document.getElementById('patientWeight')?.value);
+    const bmiInput = document.getElementById('patientBMI');
+    if (height && weight && height > 0 && weight > 0) {
+        const heightM = height / 100;
+        const bmi = (weight / (heightM * heightM)).toFixed(1);
+        let category = '';
+        if (bmi < 18.5) category = ' (Zayıf)';
+        else if (bmi < 25) category = ' (Normal)';
+        else if (bmi < 30) category = ' (Kilolu)';
+        else category = ' (Obez)';
+        bmiInput.value = bmi + category;
+    } else {
+        bmiInput.value = '';
+    }
+}
+
+function validateAge() {
+    const age = parseInt(document.getElementById('patientAge').value);
+    if (age < 0 || age > 120) {
+        alert('Geçerli bir yaş giriniz (0-120 arası)');
+        document.getElementById('patientAge').value = '';
+    }
+}
+
+function validateGender() {
+    updateSelectedSymptoms();
+}
+
+// ==========================================
+// SEMPTOM YÖNETİMİ
+// ==========================================
+
+function renderSymptoms(system) {
+    const container = document.getElementById('symptomContainer');
+    container.innerHTML = '';
+    const symptoms = symptomDatabase[system] || [];
+    symptoms.forEach((symptom, index) => {
+        const div = document.createElement('div');
+        div.className = 'symptom-item';
+        if (selectedSymptoms.includes(symptom)) div.classList.add('selected');
+        div.textContent = symptom;
+        div.onclick = () => toggleSymptom(symptom);
+        div.style.animationDelay = `${index * 0.01}s`;
+        container.appendChild(div);
+    });
+    document.getElementById('currentSystem').textContent = system.replace(/([A-Z])/g, ' $1').trim();
+}
+
+function toggleSymptom(symptom) {
+    const index = selectedSymptoms.indexOf(symptom);
+    if (index > -1) {
+        selectedSymptoms.splice(index, 1);
+    } else {
+        selectedSymptoms.push(symptom);
+    }
+    updateSelectedSymptoms();
+    renderSymptoms(document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik');
+}
+
+function updateSelectedSymptoms() {
+    const container = document.getElementById('selectedSymptoms');
+    const count = document.getElementById('selectedCount');
+    count.textContent = selectedSymptoms.length;
+    if (selectedSymptoms.length === 0) {
+        container.innerHTML = '<span style="color: var(--secondary); font-size: 0.875rem; padding: 0.5rem;">Henüz semptom seçilmedi. Yukarıdan seçim yapın veya anamnez yazın...</span>';
+        return;
+    }
+    container.innerHTML = selectedSymptoms.map(s => `
+        <span class="symptom-tag">
+            ${s}
+            <span class="remove-tag" onclick="event.stopPropagation(); removeSelectedSymptom('${s.replace(/'/g, "\\'")}')">×</span>
+        </span>
+    `).join('');
+}
+
+function removeSelectedSymptom(symptom) {
+    const index = selectedSymptoms.indexOf(symptom);
+    if (index > -1) {
+        selectedSymptoms.splice(index, 1);
+        updateSelectedSymptoms();
+        renderSymptoms(document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik');
+    }
+}
+
+function clearAllSymptoms() {
+    selectedSymptoms = [];
+    updateSelectedSymptoms();
+    renderSymptoms(document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik');
+}
+
+function switchSystem(system) {
+    document.querySelectorAll('.system-tab').forEach(tab => {
+        tab.classList.remove('active');
+        if (tab.textContent === getSystemLabel(system)) {
+            tab.classList.add('active');
+            tab.dataset.system = system;
+        }
+    });
+    renderSymptoms(system);
+}
+
+function getSystemLabel(system) {
+    const labels = {
+        'GenelSistemik': 'Genel', 'Enfeksiyon': 'Enfeksiyon', 'Kardiyovasküler': 'Kardiyovasküler',
+        'Solunum': 'Solunum', 'Sindirim': 'Sindirim', 'Nöroloji': 'Nöroloji',
+        'Endokrin': 'Endokrin', 'Romatoloji': 'Romatoloji', 'Dermatoloji': 'Dermatoloji',
+        'Üroloji': 'Üroloji', 'Jinekoloji': 'Jinekoloji', 'Psikiyatri': 'Psikiyatri', 'Hematoloji': 'Hematoloji'
+    };
+    return labels[system] || 'Genel';
+}
+
+function filterSymptoms() {
+    const search = document.getElementById('symptomSearch').value.toLowerCase().trim();
+    const activeSystem = document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik';
+    const container = document.getElementById('symptomContainer');
+    container.innerHTML = '';
+    let symptomsToShow = [];
+    if (search.length > 0) {
+        Object.keys(symptomDatabase).forEach(system => {
+            const matches = symptomDatabase[system].filter(s => s.toLowerCase().includes(search));
+            symptomsToShow = [...symptomsToShow, ...matches];
+        });
+    } else {
+        symptomsToShow = symptomDatabase[activeSystem] || [];
+    }
+    symptomsToShow = [...new Set(symptomsToShow)];
+    if (symptomsToShow.length === 0) {
+        container.innerHTML = '<div class="empty-state">Eşleşen semptom bulunamadı</div>';
+        return;
+    }
+    symptomsToShow.forEach(symptom => {
+        const div = document.createElement('div');
+        div.className = 'symptom-item';
+        if (selectedSymptoms.includes(symptom)) div.classList.add('selected');
+        div.textContent = symptom;
+        div.onclick = () => toggleSymptom(symptom);
+        container.appendChild(div);
+    });
+}
+
+function showTab(tabId) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById(tabId).classList.add('active');
+}
+
+// ==========================================
+// ANAMNEZ ANALİZİ (METİNDEN SEMPTOM ÇIKARIMI)
+// ==========================================
+
+function extractSymptomsFromHistory() {
+    const text = document.getElementById('patientHistory').value.toLowerCase();
+    if (!text || text.length < 3) return;
+    const foundSymptoms = [];
+    const allSymptoms = Object.values(symptomDatabase).flat();
+
+    allSymptoms.forEach(symptom => {
+        // Sadece semptomun temel kısmını (parantez öncesi) ara
+        const base = symptom.toLowerCase().split('(')[0].trim();
+        if (base.length < 4) return;
+        // Kelime sınırı kontrolü: "ödem" aranırken "ödemli" veya "ödematöz" bulunmasın
+        // ama "yaygın ödem var" bulunabilsin
+        const regex = new RegExp('(?:^|\\s|,|;|\\.)' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|,|;|\\.|$)', 'i');
+        if (regex.test(text)) foundSymptoms.push(symptom);
+    });
+
+    const synonymMap = {
+        'baş ağrısı': ['başım ağrıyor', 'baş ağrısı', 'migren', 'şiddetli baş ağrısı'],
+        'göğüs ağrısı': ['göğsümde ağrı', 'göğüs ağrısı', 'kalbimde ağrı', 'göğsümde baskı'],
+        'nefes darlığı': ['nefes darlığı', 'soluk soluğa kalma', 'nefesim yetmiyor', 'dispne'],
+        'karın ağrısı': ['karın ağrısı', 'karnımda ağrı', 'göbek ağrısı', 'batında ağrı'],
+        'bulantı': ['bulantı', 'midem bulanıyor', 'kusma hissi', 'mide bulantısı'],
+        'ateş': ['ateş', 'ateşim var', 'titreme', 'harpasız ateş'],
+        'öksürük': ['öksürük', 'öksürüyorum', 'balgam', 'kuru öksürük'],
+        'kanama': ['kanama', 'kanıyor', 'kanlı', 'kan geliyor']
+    };
+    for (const [canonical, synonyms] of Object.entries(synonymMap)) {
+        if (synonyms.some(s => text.includes(s))) {
+            // Tam kelime eşleşmesi ile semptom bul
+            const fullSymptom = allSymptoms.find(s => {
+                const base = s.toLowerCase().split('(')[0].trim();
+                return base === canonical || base.startsWith(canonical);
+            });
+            if (fullSymptom && !foundSymptoms.includes(fullSymptom)) foundSymptoms.push(fullSymptom);
+        }
+    }
+    let newAdded = 0;
+    foundSymptoms.forEach(sym => {
+        if (!selectedSymptoms.includes(sym)) {
+            selectedSymptoms.push(sym);
+            newAdded++;
+        }
+    });
+    if (newAdded > 0) {
+        updateSelectedSymptoms();
+        renderSymptoms(document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik');
+    }
+}
+
+// ==========================================
+// LABORATUVAR DEĞERLERİ
 // ==========================================
 
 function getLabValue(id) {
@@ -345,372 +637,45 @@ function getLabValue(id) {
     return isNaN(num) ? null : num;
 }
 
-function getLabReference(labKey) {
-    return LAB_REFERENCES[labKey] || { min: 0, max: 999, name: labKey };
-}
-
-// Tüm lab değerlerini topla
-function collectLabValues() {
-    return {
-        wbc:          getLabValue('labWBC'),
-        hgb:          getLabValue('labHgb'),
-        plt:          getLabValue('labPlt'),
-        mcv:          getLabValue('labMCV'),
-        crp:          getLabValue('labCRP'),
-        esr:          getLabValue('labESR'),
-        glucose:      getLabValue('labGlu'),
-        urea:         getLabValue('labUrea'),
-        creatinine:   getLabValue('labCre'),
-        ast:          getLabValue('labAST'),
-        alt:          getLabValue('labALT'),
-        alp:          getLabValue('labALP'),
-        bilirubin:    getLabValue('labBil'),
-        albumin:      getLabValue('labAlb'),
-        sodium:       getLabValue('labNa'),
-        potassium:    getLabValue('labK'),
-        calcium:      getLabValue('labCa'),
-        troponin:     getLabValue('labTrop'),
-        bnp:          getLabValue('labBNP'),
-        ckmb:         getLabValue('labCKMB'),
-        ddimer:       getLabValue('labDimer'),
-        tsh:          getLabValue('labTSH'),
-        t4:           getLabValue('labT4'),
-        cortisol:     getLabValue('labCortisol'),
-        tg:           getLabValue('labTG'),
-        lactate:      getLabValue('labLactate'),
-        abgph:        getLabValue('labABGpH'),
-        abgpo2:       getLabValue('labABGpO2'),
-        abgpco2:      getLabValue('labABGpCO2'),
-        abghco3:      getLabValue('labABGHCO3'),
-        urineProtein: getLabValue('labProtein'),
-        urineLeuko:   getLabValue('labLeuko'),
-        urineNitrit:  getLabValue('labNitrit'),
-        urinepH:      getLabValue('labUrinepH'),
-        keton:        getLabValue('labKeton'),
-        urineGlu:     getLabValue('labUrineGlu'),
-        bloodCulture: getLabValue('labBloodCulture'),
-        urineCulture: getLabValue('labUrineCulture'),
-        sputum:       getLabValue('labSputum')
+function getLabReference(id) {
+    const refs = {
+        'labWBC': { min: 4, max: 10, name: 'WBC' },
+        'labHgb': { min: 12, max: 16, name: 'Hgb' },
+        'labPlt': { min: 150, max: 400, name: 'Platelet' },
+        'labMCV': { min: 80, max: 100, name: 'MCV' },
+        'labCRP': { min: 0, max: 5, name: 'CRP' },
+        'labESR': { min: 0, max: 20, name: 'ESR' },
+        'labGlu': { min: 70, max: 100, name: 'Glukoz' },
+        'labUrea': { min: 10, max: 50, name: 'Üre' },
+        'labCre': { min: 0.6, max: 1.2, name: 'Kreatinin' },
+        'labAST': { min: 0, max: 40, name: 'AST' },
+        'labALT': { min: 0, max: 40, name: 'ALT' },
+        'labALP': { min: 40, max: 130, name: 'ALP' },
+        'labBil': { min: 0.3, max: 1.2, name: 'Bilirubin' },
+        'labAlb': { min: 3.5, max: 5.0, name: 'Albumin' },
+        'labNa': { min: 135, max: 145, name: 'Sodyum' },
+        'labK': { min: 3.5, max: 5.0, name: 'Potasyum' },
+        'labCa': { min: 8.5, max: 10.5, name: 'Kalsiyum' },
+        'labTrop': { min: 0, max: 0.014, name: 'Troponin' },
+        'labBNP': { min: 0, max: 100, name: 'BNP' },
+        'labTSH': { min: 0.4, max: 4.0, name: 'TSH' },
+        'labT4': { min: 0.8, max: 1.8, name: 'T4' }
     };
+    return refs[id] || { min: 0, max: 999, name: id };
 }
 
 // ==========================================
-// CİNSİYET FİLTRE KONTROLÜ
-// ==========================================
-
-function shouldExcludeByGender(disease, gender) {
-    const cfg = algorithmConfig.genderFilters;
-    if (!cfg.enabled) return false;
-
-    const cat = (disease.category || '').toLowerCase();
-    const name = (disease.name || '').toLowerCase();
-    const subcategory = (disease.subcategory || '').toLowerCase();
-
-    if (gender === 'erkek') {
-        // Jinekoloji kategorisi
-        for (const excCat of cfg.maleExcludeCategories) {
-            if (cat.includes(excCat.toLowerCase())) return true;
-            if (subcategory.includes(excCat.toLowerCase())) return true;
-        }
-        // Anahtar kelimeler
-        for (const kw of cfg.maleExcludeKeywords) {
-            if (name.includes(kw.toLowerCase())) return true;
-        }
-        // disease.gender alanı kontrolü
-        if (disease.gender && disease.gender === 'kadın') return true;
-    }
-
-    if (gender === 'kadın') {
-        for (const excCat of cfg.femaleExcludeCategories) {
-            if (cat.includes(excCat.toLowerCase())) return true;
-        }
-        for (const kw of cfg.femaleExcludeKeywords) {
-            if (name.includes(kw.toLowerCase())) return true;
-        }
-        if (disease.gender && disease.gender === 'erkek') return true;
-    }
-
-    return false;
-}
-
-// ==========================================
-// YAŞ FİLTRE KONTROLÜ
-// ==========================================
-
-function shouldExcludeByAge(disease, age) {
-    const cfg = algorithmConfig.ageGroupFilters;
-    if (!cfg.enabled) return false;
-
-    const cat = (disease.category || '').toLowerCase();
-    const name = (disease.name || '').toLowerCase();
-
-    // disease.ageRange alanı varsa kesin filtre uygula
-    if (disease.ageRange) {
-        const min = typeof disease.ageRange.min !== 'undefined' ? disease.ageRange.min : 0;
-        const max = typeof disease.ageRange.max !== 'undefined' ? disease.ageRange.max : 120;
-        if (age < min || age > max) return true;
-    }
-
-    // Pediatrik-only hastalıklar
-    if (age >= cfg.adultOnlyMinAge) {
-        for (const c of cfg.pediatricOnlyCategories) {
-            if (cat.includes(c.toLowerCase())) return true;
-        }
-        for (const kw of cfg.pediatricOnlyKeywords) {
-            if (name.includes(kw.toLowerCase())) return true;
-        }
-    }
-
-    // Sadece-erişkin hastalıklar
-    if (age < cfg.adultOnlyMinAge) {
-        for (const kw of cfg.adultOnlyKeywords) {
-            if (name.includes(kw.toLowerCase())) return true;
-        }
-    }
-
-    return false;
-}
-
-// ==========================================
-// PREVALANS SKORU HESAPLAMA
-// ==========================================
-
-function calculatePrevalenceScore(disease, age, gender) {
-    const scores = algorithmConfig.prevalenceScores;
-    let score = scores[disease.prevalence] || scores.medium;
-
-    // Yaş bazlı prevalans düzeltmeleri
-    const adj = algorithmConfig.prevalenceAdjustments;
-
-    // KVS için yaş bonusu
-    if (adj.kardiyovaskulerAgeBonus) {
-        const b = adj.kardiyovaskulerAgeBonus;
-        if ((disease.category || '').includes(b.category.split(' ')[0]) && age >= b.minAge) {
-            score = Math.min(100, score + b.bonus);
-        }
-    }
-
-    // Pediatri için erişkin cezası
-    if (adj.pediatriAdultPenalty) {
-        const p = adj.pediatriAdultPenalty;
-        if ((disease.category || '').includes('Pediatri') && age >= p.minAge) {
-            score = p.score;
-        }
-    }
-
-    return score;
-}
-
-// ==========================================
-// SEMPTOM SKORU HESAPLAMA
-// ==========================================
-
-function calculateSymptomScore(disease, selectedSymptoms) {
-    // veritabani.js'deki hastalıkların semptom formatını normalize et
-    let diseaseSymptoms = [];
-
-    if (disease.symptoms && Array.isArray(disease.symptoms)) {
-        diseaseSymptoms = [...disease.symptoms];
-    }
-    if (disease.signs && Array.isArray(disease.signs)) {
-        diseaseSymptoms = [...diseaseSymptoms, ...disease.signs];
-    }
-
-    if (diseaseSymptoms.length === 0) {
-        return { score: 10, matched: [], unmatched: [] };
-    }
-
-    const lowerSelected = selectedSymptoms.map(s => s.toLowerCase());
-
-    const matched = diseaseSymptoms.filter(s => {
-        const sl = s.toLowerCase();
-        return lowerSelected.some(sel => sel.includes(sl) || sl.includes(sel) || fuzzyMatch(sel, sl));
-    });
-    const unmatched = diseaseSymptoms.filter(s => !matched.includes(s));
-
-    const score = (matched.length / diseaseSymptoms.length) * 100;
-    return { score, matched, unmatched };
-}
-
-// Basit bulanık eşleşme
-function fuzzyMatch(a, b) {
-    if (a.length < 4 || b.length < 4) return false;
-    const shorter = a.length < b.length ? a : b;
-    const longer = a.length < b.length ? b : a;
-    return longer.includes(shorter.substring(0, Math.min(shorter.length, 6)));
-}
-
-// ==========================================
-// LAB SKORU HESAPLAMA
-// ==========================================
-
-function calculateLabScore(disease, labs) {
-    const labDefs = disease.labs || disease.labFindings;
-
-    // Eğer hastalıkta labs objesi (eski format: key-value) varsa
-    if (labDefs && typeof labDefs === 'object' && !Array.isArray(labDefs)) {
-        let totalWeight = 0;
-        let matchedWeight = 0;
-        const matchedLabs = [];
-
-        Object.keys(labDefs).forEach(labKey => {
-            const condition = labDefs[labKey];
-            const labValue = labs[labKey];
-
-            if (labValue !== null && labValue !== undefined) {
-                const weight = condition.weight || 10;
-                totalWeight += weight;
-                let isMatch = false;
-                const ref = getLabReference(labKey);
-
-                if (condition.type === 'range') {
-                    if (labValue >= condition.min && labValue <= condition.max) isMatch = true;
-                } else if (condition.type === 'high') {
-                    if (typeof labValue === 'number' && labValue > ref.max) isMatch = true;
-                } else if (condition.type === 'low') {
-                    if (typeof labValue === 'number' && labValue < ref.min) isMatch = true;
-                } else if (condition.type === 'positive') {
-                    if (labValue === 'pozitif' || labValue === 'positive' || labValue === '1+' ||
-                        labValue === '2+' || labValue === '3+' || labValue === '4+') isMatch = true;
-                } else if (condition.type === 'exact') {
-                    if (labValue == condition.value) isMatch = true;
-                }
-
-                if (isMatch) {
-                    matchedWeight += weight;
-                    matchedLabs.push(`${condition.name || ref.name}: ${labValue}`);
-                }
-            }
-        });
-
-        const score = totalWeight > 0 ? (matchedWeight / totalWeight) * 100 : 50;
-        return { score, matchedLabs };
-    }
-
-    // Eğer labFindings string dizisi ise (yeni veritabanı formatı)
-    // Bu durumda lab eşleşmesi manuel yapılamaz, nötr skor ver
-    if (labDefs && Array.isArray(labDefs)) {
-        // Metin bazlı eşleşme dene
-        const matchedLabs = [];
-        let hasAnyLabInput = Object.values(labs).some(v => v !== null && v !== undefined && v !== '');
-
-        if (!hasAnyLabInput) return { score: 50, matchedLabs: [] };
-
-        // Yüksek CRP → enflamasyon
-        if (labs.crp !== null && labs.crp > 5) {
-            const text = labDefs.join(' ').toLowerCase();
-            if (text.includes('crp') || text.includes('enflamasyon') || text.includes('inflamasyon')) {
-                matchedLabs.push('CRP yüksek');
-            }
-        }
-        if (labs.wbc !== null && labs.wbc > 10) {
-            const text = labDefs.join(' ').toLowerCase();
-            if (text.includes('lökosit') || text.includes('wbc') || text.includes('lökositoz')) {
-                matchedLabs.push('WBC yüksek (Lökositoz)');
-            }
-        }
-        if (labs.hgb !== null && labs.hgb < 12) {
-            const text = labDefs.join(' ').toLowerCase();
-            if (text.includes('anemi') || text.includes('hemoglobin') || text.includes('hgb')) {
-                matchedLabs.push('Hgb düşük (Anemi)');
-            }
-        }
-        if (labs.glucose !== null && labs.glucose > 126) {
-            const text = labDefs.join(' ').toLowerCase();
-            if (text.includes('glukoz') || text.includes('hiperglisemi') || text.includes('diyabet')) {
-                matchedLabs.push('Glukoz yüksek (Hiperglisemi)');
-            }
-        }
-        if (labs.troponin !== null && labs.troponin > 0.014) {
-            const text = labDefs.join(' ').toLowerCase();
-            if (text.includes('troponin') || text.includes('miyokard')) {
-                matchedLabs.push('Troponin yüksek');
-            }
-        }
-        if (labs.creatinine !== null && labs.creatinine > 1.2) {
-            const text = labDefs.join(' ').toLowerCase();
-            if (text.includes('kreatinin') || text.includes('böbrek') || text.includes('renal')) {
-                matchedLabs.push('Kreatinin yüksek');
-            }
-        }
-        if (labs.tsh !== null && labs.tsh > 4.0) {
-            const text = labDefs.join(' ').toLowerCase();
-            if (text.includes('tsh') || text.includes('hipotiroidi') || text.includes('tiroid')) {
-                matchedLabs.push('TSH yüksek (Hipotiroidi)');
-            }
-        }
-        if (labs.tsh !== null && labs.tsh < 0.4) {
-            const text = labDefs.join(' ').toLowerCase();
-            if (text.includes('tsh') || text.includes('hipertiroidi') || text.includes('tiroid')) {
-                matchedLabs.push('TSH düşük (Hipertiroidi)');
-            }
-        }
-
-        const score = matchedLabs.length > 0 ? Math.min(100, matchedLabs.length * 25) : 50;
-        return { score, matchedLabs };
-    }
-
-    return { score: 50, matchedLabs: [] };
-}
-
-// ==========================================
-// ANAMNEZ ANALİZİ (METİNDEN SEMPTOM ÇIKARIMI)
-// ==========================================
-
-function extractSymptomsFromHistory() {
-    const text = document.getElementById('patientHistory').value.toLowerCase();
-    if (!text || text.length < 3) return;
-
-    const allSymptoms = Object.values(symptomDatabase).flat();
-    const foundSymptoms = [];
-
-    // Direkt eşleşmeler
-    allSymptoms.forEach(symptom => {
-        if (text.includes(symptom.toLowerCase())) {
-            foundSymptoms.push(symptom);
-        }
-    });
-
-    // Eş anlamlı kontroller
-    for (const [canonical, synonyms] of Object.entries(SYMPTOM_SYNONYMS)) {
-        if (synonyms.some(s => text.includes(s))) {
-            const fullSymptom = allSymptoms.find(s => s.toLowerCase().includes(canonical));
-            if (fullSymptom && !foundSymptoms.includes(fullSymptom)) {
-                foundSymptoms.push(fullSymptom);
-            }
-        }
-    }
-
-    // Yeni bulunanları seçili listeye ekle
-    let newAdded = 0;
-    foundSymptoms.forEach(sym => {
-        if (!selectedSymptoms.includes(sym)) {
-            selectedSymptoms.push(sym);
-            newAdded++;
-        }
-    });
-
-    if (newAdded > 0) {
-        updateSelectedSymptoms();
-        const activeSystem = document.querySelector('.system-tab.active')?.dataset?.system || 'GenelSistemik';
-        renderSymptoms(activeSystem);
-        console.log(`${newAdded} yeni semptom anamnezden çıkarıldı.`);
-    }
-}
-
-// ==========================================
-// ANA ALGORİTMA - TANI ANALİZİ
+// ANA TANISAL ALGORİTMA
 // ==========================================
 
 function analyzeCase() {
-    // Config'i yenile (admin değişikliklerine duyarlı)
-    algorithmConfig = loadAlgorithmConfig();
-
-    // 1. Hasta verilerini topla
     const age = parseInt(document.getElementById('patientAge').value);
     const gender = document.getElementById('patientGender').value;
+    const weight = parseFloat(document.getElementById('patientWeight').value) || null;
+    const height = parseFloat(document.getElementById('patientHeight').value) || null;
+    const imagingResults = document.getElementById('imagingResults')?.value || '';
+    const pathologyResults = document.getElementById('pathologyResults')?.value || '';
 
-    // Validasyon
     if (!age && age !== 0) {
         alert('Lütfen hasta yaşını giriniz! (Yaş filtresi zorunludur)');
         document.getElementById('patientAge').focus();
@@ -721,126 +686,229 @@ function analyzeCase() {
         document.getElementById('patientGender').focus();
         return;
     }
-
-    // Anamnezden otomatik çıkarım
     extractSymptomsFromHistory();
-
     if (selectedSymptoms.length === 0) {
-        if (!confirm('Hiç semptom seçilmedi. Sadece yaş/cinsiyet ve lab verilerine göre genel tarama yapılacak. Devam edilsin mi?')) {
-            return;
-        }
+        if (!confirm('Hiç semptom seçilmedi. Sadece yaş/cinsiyet ve lab verilerine göre genel tarama yapılacak. Devam etmek istiyor musunuz?')) return;
     }
 
-    // 2. Lab değerlerini topla
-    const labs = collectLabValues();
+    const labs = {
+        wbc: getLabValue('labWBC'), hgb: getLabValue('labHgb'), plt: getLabValue('labPlt'),
+        mcv: getLabValue('labMCV'), crp: getLabValue('labCRP'), esr: getLabValue('labESR'),
+        glucose: getLabValue('labGlu'), urea: getLabValue('labUrea'), creatinine: getLabValue('labCre'),
+        ast: getLabValue('labAST'), alt: getLabValue('labALT'), alp: getLabValue('labALP'),
+        bilirubin: getLabValue('labBil'), albumin: getLabValue('labAlb'), sodium: getLabValue('labNa'),
+        potassium: getLabValue('labK'), calcium: getLabValue('labCa'), troponin: getLabValue('labTrop'),
+        bnp: getLabValue('labBNP'), tsh: getLabValue('labTSH'), t4: getLabValue('labT4'),
+        urineProtein: getLabValue('labProtein'), urineLeuko: getLabValue('labLeuko'),
+        urineNitrit: getLabValue('labNitrit')
+    };
 
-    // 3. Görüntüleme ve patoloji metinleri
-    const imagingText   = (document.getElementById('imagingResults')?.value || '').toLowerCase();
-    const pathologyText = (document.getElementById('pathologyResults')?.value || '').toLowerCase();
-
-    // 4. Yükleme ekranı
     document.getElementById('loadingSection').classList.add('active');
     document.getElementById('resultsSection').classList.remove('active');
 
-    // 5. Analiz (kısa gecikme ile UX iyileştirme)
     setTimeout(() => {
         const results = [];
         const cfg = algorithmConfig;
 
-        // Admin tarafından değiştirilen hastalık veritabanı overridelerini uygula
-        const effectiveDB = applyDatabaseOverrides(diseaseDatabase);
+        diseaseDatabase.forEach(disease => {
 
-        effectiveDB.forEach(disease => {
-            // A. CİNSİYET FİLTRESİ
-            if (shouldExcludeByGender(disease, gender)) return;
-
-            // B. YAŞ FİLTRESİ
-            if (shouldExcludeByAge(disease, age)) return;
-
-            // C. SEMPTOM SKORU (%50)
-            const { score: symptomScore, matched: matchedSymptoms, unmatched: unmatchedSymptoms } =
-                calculateSymptomScore(disease, selectedSymptoms);
-
-            // D. PREVALANS SKORU (%30)
-            const prevalenceScore = calculatePrevalenceScore(disease, age, gender);
-            const prevalenceLabel = disease.prevalence || 'medium';
-
-            // E. LAB SKORU (%20)
-            const { score: labScore, matchedLabs } = calculateLabScore(disease, labs);
-
-            // F. GÖRÜNTÜLEME/PATOLOJİ BONUSU (max +10)
-            let imagingBonus = 0;
-            if ((disease.pathology || []).length > 0 && pathologyText.length > 3) {
-                const hasMatch = (disease.pathology || []).some(p => pathologyText.includes(p.toLowerCase().substring(0, 6)));
-                if (hasMatch) imagingBonus += 5;
+            // ── A. YAŞ KONTROLÜ (KATI) ──────────────────────────
+            if (cfg.ageFilters.enabled && disease.ageRange) {
+                if (age < disease.ageRange.min || age > disease.ageRange.max) return;
             }
 
-            // G. TOPLAM SKOR
-            const totalScore = Math.min(100,
-                (symptomScore   * cfg.symptomWeight) +
-                (prevalenceScore * cfg.prevalenceWeight) +
-                (labScore       * cfg.labWeight) +
-                imagingBonus
-            );
+            // ── B. CİNSİYET KONTROLÜ (KATI) ──────────────────────
+            if (cfg.genderFilters.enabled && disease.gender && disease.gender !== 'both') {
+                if (disease.gender !== gender) return;
+            }
 
-            // H. EŞİK KONTROLÜ
-            if (totalScore > cfg.minTotalScore ||
-                (disease.prevalence === 'high' && symptomScore > 20)) {
+            // ── B2. KATEGORİ KURALLARI ────────────────────────────
+            if (cfg.categoryRules && cfg.categoryRules.length > 0) {
+                for (const rule of cfg.categoryRules) {
+                    if (disease.category && disease.category.includes(rule.category)) {
+                        if (rule.allowedGender !== 'both' && rule.allowedGender !== gender) return;
+                        if (age < rule.minAge || age > rule.maxAge) return;
+                    }
+                }
+            }
+
+            // ── C. SEMPTOM SKORU (%50) ────────────────────────────
+            let symptomScore = 0;
+            let matchedSymptoms = [];
+            let unmatchedSymptoms = [];
+
+            // Hem symptoms[] hem signs[] ile eşleştir
+            const diseaseSymptoms = [...(disease.symptoms || []), ...(disease.signs || [])];
+
+            if (diseaseSymptoms.length > 0) {
+
+                // ── AKILLI SEMPTOM EŞLEŞTİRME ─────────────────────────
+                // Sorun: "yaygın ödem".includes("yaygın") → "yaygın eritem" de eşleşiyordu
+                // Çözüm: anlamlı kök kelimeleri çıkar, hem seçilen hem hastalık semptomunu karşılaştır
+
+                function extractKeywords(symptomStr) {
+                    // Parantez içini çıkar ve temizle: "Ödem (bilateral alt ext)" → ["ödem", "bilateral", "alt"]
+                    const lower = symptomStr.toLowerCase();
+                    // Kısa ve anlamsız kelimeleri filtrele
+                    const stopWords = new Set(['ve', 'ile', 'veya', 'bir', 'bu', 'da', 'de', 'mi', 'mu', 'mü', 'ya', 'ya', 'ki', 'ise', 'için', 'gibi', 'kadar', 'sonra', 'önce', 'olan', 'olur', 'olması', 'the', 'and', 'or', 'of', 'in', 'at']);
+                    return lower
+                        .replace(/[()[\]\/\-,.;:]/g, ' ')
+                        .split(/\s+/)
+                        .filter(w => w.length >= 4 && !stopWords.has(w));
+                }
+
+                function symptomMatch(selected, diseaseSymptom) {
+                    const selLow  = selected.toLowerCase().trim();
+                    const disLow  = diseaseSymptom.toLowerCase().trim();
+
+                    // 1. Tam eşleşme (en güvenilir)
+                    if (selLow === disLow) return true;
+
+                    // 2. Parantezi yok say tam eşleşme: "Ödem (bilateral)" = "Ödem"
+                    const selBase = selLow.split('(')[0].trim();
+                    const disBase = disLow.split('(')[0].trim();
+                    if (selBase === disBase) return true;
+
+                    // 3. Her iki tarafın kök kelimelerini çıkar
+                    const selWords = extractKeywords(selLow);
+                    const disWords = extractKeywords(disLow);
+
+                    if (selWords.length === 0 || disWords.length === 0) return false;
+
+                    // 4. Her iki tarafın birinci (kök) kelimesi kesinlikle örtüşmeli
+                    //    "yaygın ödem" ↔ "yaygın eritem" → "ödem" ≠ "eritem" → eşleşme YOK
+                    //    "yaygın ödem" ↔ "yaygın ödem (alt ext)" → "ödem" = "ödem" → eşleşme VAR
+                    const selCore = selBase.split(/\s+/)[0]; // "yaygın ödem" → "yaygın", "ödem" 2. kelime
+                    const disCore = disBase.split(/\s+/)[0];
+
+                    // 4a. Her iki taraftan anlamlı kelimelerin ortak kesişim oranı
+                    const overlap = selWords.filter(sw =>
+                        disWords.some(dw =>
+                            dw === sw ||
+                            (sw.length >= 5 && (dw.startsWith(sw) || sw.startsWith(dw)))
+                        )
+                    );
+
+                    // En az 2 anlamlı kelime örtüşmeli VEYA
+                    // tek anlamlı kelime varsa o kesinlikle örtüşmeli
+                    const minWords = Math.min(selWords.length, disWords.length);
+                    if (minWords <= 1) {
+                        // Tek kelimeli semptomlar: tam örtüşme zorunlu
+                        return overlap.length >= 1 && selWords[0] === disWords[0];
+                    }
+                    if (minWords === 2) {
+                        // 2 kelimeli: en az 2 ortak kelime
+                        return overlap.length >= 2;
+                    }
+                    // 3+ kelimeli: en az 2 ortak veya %60 örtüşme
+                    return overlap.length >= 2 || (overlap.length / minWords) >= 0.6;
+                }
+
+                matchedSymptoms = diseaseSymptoms.filter(s =>
+                    selectedSymptoms.some(sel => symptomMatch(sel, s))
+                );
+                unmatchedSymptoms = diseaseSymptoms.filter(s => !matchedSymptoms.includes(s));
+                symptomScore = (matchedSymptoms.length / diseaseSymptoms.length) * 100;
+            } else {
+                symptomScore = 10;
+            }
+
+            // ── D. LAB SKORU (%20) ────────────────────────────────
+            let labScore = 50; // nötr
+            let matchedLabs = [];
+            let totalLabWeight = 0;
+            let matchedLabWeight = 0;
+
+            if (disease.labs && Object.keys(disease.labs).length > 0) {
+                Object.keys(disease.labs).forEach(labKey => {
+                    const labValue = labs[labKey];
+                    const condition = disease.labs[labKey];
+                    if (labValue !== null && labValue !== undefined) {
+                        totalLabWeight += (condition.weight || 10);
+                        let isMatch = false;
+                        if (condition.type === 'range') {
+                            if (labValue >= condition.min && labValue <= condition.max) isMatch = true;
+                        } else if (condition.type === 'high') {
+                            const ref = getLabReference('lab' + labKey.charAt(0).toUpperCase() + labKey.slice(1));
+                            if (labValue > ref.max) isMatch = true;
+                        } else if (condition.type === 'low') {
+                            const ref = getLabReference('lab' + labKey.charAt(0).toUpperCase() + labKey.slice(1));
+                            if (labValue < ref.min) isMatch = true;
+                        } else if (condition.type === 'positive') {
+                            if (labValue === 'pozitif' || labValue === 'positive' || labValue === true) isMatch = true;
+                        } else if (condition.type === 'exact') {
+                            if (labValue == condition.value) isMatch = true;
+                        }
+                        if (isMatch) {
+                            matchedLabWeight += (condition.weight || 10);
+                            matchedLabs.push(`${condition.name || labKey}: ${labValue}`);
+                        }
+                    }
+                });
+                if (totalLabWeight > 0) {
+                    labScore = (matchedLabWeight / totalLabWeight) * 100;
+                } else {
+                    labScore = 50;
+                }
+            }
+
+            // ── E. PREVALANS SKORU (%30) ──────────────────────────
+            let prevalenceScore = cfg.prevalenceScores[disease.prevalence] || 50;
+            let prevalenceLabel = disease.prevalence || 'medium';
+
+            // Yaş/Kategori bazlı prevalans bonusu
+            if (cfg.prevalenceBonus) {
+                Object.values(cfg.prevalenceBonus).forEach(bonus => {
+                    if (age >= (bonus.minAge || 0) && disease.category && disease.category.includes(bonus.category)) {
+                        prevalenceScore = Math.min(100, prevalenceScore + (bonus.bonus || 0));
+                    }
+                });
+            }
+
+            // Radyoloji / Patoloji bonus skoru
+            let imagingBonus = 0;
+            if (imagingResults && disease.radiologyNotes) {
+                const imgWords = imagingResults.toLowerCase().split(/\s+/);
+                const radWords = disease.radiologyNotes.toLowerCase().split(/\s+/);
+                const matches = imgWords.filter(w => w.length > 4 && radWords.some(r => r.includes(w)));
+                imagingBonus = Math.min(20, matches.length * 3);
+            }
+            let pathologyBonus = 0;
+            if (pathologyResults && disease.pathologyNotes) {
+                const pathWords = pathologyResults.toLowerCase().split(/\s+/);
+                const diseasePathWords = disease.pathologyNotes.toLowerCase().split(/\s+/);
+                const matches = pathWords.filter(w => w.length > 4 && diseasePathWords.some(r => r.includes(w)));
+                pathologyBonus = Math.min(20, matches.length * 4);
+            }
+
+            // ── F. TOPLAM SKOR (Ağırlıklı ortalama) ──────────────
+            const w = cfg.weights;
+            const baseScore = (symptomScore * w.symptom) + (prevalenceScore * w.prevalence) + (labScore * w.lab);
+            const totalScore = Math.min(100, baseScore + imagingBonus + pathologyBonus);
+
+            // Minimum eşik kontrolü
+            const minScore = cfg.thresholds.minScore;
+            const highPrevMinSym = cfg.thresholds.highPrevalenceMinSymptom;
+
+            if (totalScore > minScore || (disease.prevalence === 'high' && symptomScore > highPrevMinSym)) {
                 results.push({
-                    disease,
-                    totalScore,
-                    symptomScore,
-                    prevalenceScore,
-                    labScore,
-                    matchedSymptoms,
-                    unmatchedSymptoms,
-                    matchedLabs,
-                    prevalenceLabel
+                    disease, totalScore, symptomScore, prevalenceScore, labScore,
+                    matchedSymptoms, unmatchedSymptoms, matchedLabs, prevalenceLabel,
+                    imagingBonus, pathologyBonus
                 });
             }
         });
 
-        // Sıralama
         results.sort((a, b) => {
-            if (Math.abs(b.totalScore - a.totalScore) > 0.5) return b.totalScore - a.totalScore;
+            if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
             return b.prevalenceScore - a.prevalenceScore;
         });
 
-        // Sonuçları göster
-        displayResults(results.slice(0, cfg.maxResults));
-
+        displayResults(results.slice(0, algorithmConfig.thresholds.maxResults));
         document.getElementById('loadingSection').classList.remove('active');
         document.getElementById('resultsSection').classList.add('active');
         document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
-
     }, 800);
-}
-
-// Admin değişikliklerini veritabanına uygula
-function applyDatabaseOverrides(baseDB) {
-    try {
-        // Silinen hastalıklar
-        const deleted = JSON.parse(localStorage.getItem('adminDeletedIds') || '[]');
-        // Eklenen hastalıklar
-        const added = JSON.parse(localStorage.getItem('adminAddedDiseases') || '[]');
-        // Değiştirilen hastalıklar
-        const modified = JSON.parse(localStorage.getItem('adminModifiedDiseases') || '{}');
-
-        let result = baseDB
-            .filter(d => !deleted.includes(d.id || d.name))
-            .map(d => {
-                const key = d.id || d.name;
-                if (modified[key]) {
-                    return Object.assign({}, d, modified[key]);
-                }
-                return d;
-            });
-
-        result = [...result, ...added];
-        return result;
-    } catch(e) {
-        return baseDB;
-    }
 }
 
 // ==========================================
@@ -850,116 +918,100 @@ function applyDatabaseOverrides(baseDB) {
 function displayResults(results) {
     const container = document.getElementById('diseaseList');
     container.innerHTML = '';
-
     if (results.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
                 <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
                 <div style="font-weight: 700; color: var(--text); margin-bottom: 0.5rem;">Sonuç Bulunamadı</div>
-                <div>Seçili semptomlar ve demografik verilerle eşleşen hastalık bulunamadı.
-                     Lütfen semptomları genişletin veya filtreleri kontrol edin.</div>
+                <div>Seçili semptomlar ve demografik verilerle eşleşen hastalık bulunamadı. Lütfen semptomları genişletin veya filtreleri kontrol edin.</div>
             </div>`;
         return;
     }
-
     results.forEach((result, index) => {
         const item = document.createElement('div');
         item.className = 'disease-item';
-
-        if (result.totalScore >= 70)           item.classList.add('high-probability');
-        else if (result.totalScore >= 40)      item.classList.add('medium-probability');
+        if (result.totalScore >= 70) item.classList.add('high-probability');
+        else if (result.totalScore >= 40) item.classList.add('medium-probability');
         else if (result.prevalenceLabel === 'rare') item.classList.add('rare');
-        else                                   item.classList.add('low-probability');
+        else item.classList.add('low-probability');
 
         const prevBadgeClass = { high: 'prev-high', medium: 'prev-medium', low: 'prev-low', rare: 'prev-rare' }[result.prevalenceLabel] || 'prev-medium';
-        const prevText = { high: 'Yaygın', medium: 'Orta Sıklık', low: 'Nadir', rare: 'Çok Nadir' }[result.prevalenceLabel] || 'Orta';
+        const prevText = { high: 'Yaygın', medium: 'Orta', low: 'Nadir', rare: 'Çok Nadir' }[result.prevalenceLabel] || 'Orta';
 
-        const diseaseCode = result.disease.code || result.disease.id || 'Kod Yok';
-        const category    = result.disease.category || '';
-        const englishName = result.disease.englishName ? `<span style="color:var(--secondary); font-size:0.9rem; font-style:italic;"> / ${result.disease.englishName}</span>` : '';
+        const bonusInfo = (result.imagingBonus > 0 || result.pathologyBonus > 0)
+            ? `<span title="Görüntüleme/Patoloji Bonus">📷 +${result.imagingBonus + result.pathologyBonus}%</span>` : '';
 
         item.innerHTML = `
             <div class="disease-header">
-                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-                    <span class="disease-name">${result.disease.name}${englishName}</span>
-                    <span class="disease-code">${diseaseCode}</span>
+                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <span class="disease-name">${result.disease.name}</span>
+                    <span class="disease-code">${result.disease.code || 'Kod Yok'}</span>
                     <span class="prevalence-badge ${prevBadgeClass}">${prevText}</span>
-                    ${category ? `<span class="badge" style="background:#e0e7ff; color:#3730a3;">${category}</span>` : ''}
+                    ${result.disease.category ? `<span class="badge" style="background: #e0e7ff; color: #3730a3;">${result.disease.category}</span>` : ''}
                 </div>
-                <div style="text-align:right;">
-                    <div style="font-size:1.5rem; font-weight:800; color:var(--primary);">${result.totalScore.toFixed(1)}%</div>
-                    <div style="font-size:0.75rem; color:var(--secondary);">Eşleşme Skoru</div>
+                <div style="text-align: right;">
+                    <div style="font-size: 1.5rem; font-weight: 800; color: var(--primary);">${result.totalScore.toFixed(1)}%</div>
+                    <div style="font-size: 0.75rem; color: var(--secondary);">Eşleşme</div>
                 </div>
             </div>
-
             <div class="match-score">
                 <div class="score-bar">
-                    <div class="score-fill" style="width:${Math.min(100, result.totalScore)}%"></div>
+                    <div class="score-fill" style="width: ${Math.min(100, result.totalScore)}%"></div>
                 </div>
             </div>
-
             <div class="score-breakdown">
-                <span title="Semptom Uyumu">🩺 Semptom: ${result.symptomScore.toFixed(0)}%</span>
-                <span title="Prevalans Ağırlığı">📊 Prevalans: ${result.prevalenceScore.toFixed(0)}%</span>
-                <span title="Lab Uyumu">🧪 Lab: ${result.labScore.toFixed(0)}%</span>
-                <span style="margin-left:auto; color:${result.matchedSymptoms.length > 0 ? 'var(--success)' : 'var(--secondary)'};">
-                    ✓ ${result.matchedSymptoms.length} / ${result.matchedSymptoms.length + result.unmatchedSymptoms.length} semptom
+                <span title="Semptom Uyumu">🩺 ${result.symptomScore.toFixed(0)}%</span>
+                <span title="Prevalans Ağırlığı">📊 ${result.prevalenceScore.toFixed(0)}%</span>
+                <span title="Lab Uyumu">🧪 ${result.labScore.toFixed(0)}%</span>
+                ${bonusInfo}
+                <span style="margin-left: auto; color: ${result.matchedSymptoms.length > 0 ? 'var(--success)' : 'var(--secondary)'};">
+                    ✓ ${result.matchedSymptoms.length}/${result.matchedSymptoms.length + result.unmatchedSymptoms.length} semptom
                 </span>
             </div>
-
             <div class="disease-details" id="details-${index}">
                 <div class="detail-section">
                     <div class="detail-label">🩺 Eşleşen Semptomlar (${result.matchedSymptoms.length}):</div>
                     <div>
                         ${result.matchedSymptoms.length > 0
                             ? result.matchedSymptoms.map(s => `<span class="badge matched">${s}</span>`).join('')
-                            : '<span style="color:var(--secondary); font-style:italic;">Eşleşen semptom bulunamadı</span>'
+                            : '<span style="color: var(--secondary); font-style: italic;">Eşleşen semptom bulunamadı</span>'
                         }
                     </div>
                 </div>
-
                 ${result.unmatchedSymptoms.length > 0 ? `
                 <div class="detail-section">
-                    <div class="detail-label">⏳ Bu Hastalıkta Beklenen Ancak Seçilmeyen Semptomlar:</div>
+                    <div class="detail-label">⏳ Beklenen Ancak Seçilmeyen Semptomlar:</div>
                     <div>
                         ${result.unmatchedSymptoms.slice(0, 5).map(s => `<span class="badge">${s}</span>`).join('')}
                         ${result.unmatchedSymptoms.length > 5 ? `<span class="badge">+${result.unmatchedSymptoms.length - 5} daha...</span>` : ''}
                     </div>
                 </div>` : ''}
-
                 ${result.matchedLabs.length > 0 ? `
                 <div class="detail-section">
                     <div class="detail-label">🧪 Eşleşen Laboratuvar Bulguları:</div>
                     <div>${result.matchedLabs.map(l => `<span class="badge matched-lab">${l}</span>`).join('')}</div>
                 </div>` : ''}
-
-                ${result.disease.treatment ? `
+                ${result.disease.pathologyNotes ? `
                 <div class="detail-section">
-                    <div class="detail-label">💊 Tedavi Yaklaşımı:</div>
-                    <div style="color:var(--secondary); font-size:0.875rem;">
-                        ${Array.isArray(result.disease.treatment)
-                            ? result.disease.treatment.join(' • ')
-                            : result.disease.treatment}
-                    </div>
+                    <div class="detail-label">🔬 Patoloji Notları:</div>
+                    <div style="color: var(--secondary); font-size: 0.85rem;">${result.disease.pathologyNotes}</div>
                 </div>` : ''}
-
+                ${result.disease.radiologyNotes ? `
+                <div class="detail-section">
+                    <div class="detail-label">📷 Radyoloji Notları:</div>
+                    <div style="color: var(--secondary); font-size: 0.85rem;">${result.disease.radiologyNotes}</div>
+                </div>` : ''}
                 ${result.disease.ageRange ? `
                 <div class="detail-section">
-                    <div class="detail-label">👤 Tipik Demografik:</div>
-                    <div style="color:var(--secondary);">
-                        Yaş: ${result.disease.ageRange.min}-${result.disease.ageRange.max}
-                        ${result.disease.gender && result.disease.gender !== 'both'
-                            ? ` • ${result.disease.gender === 'erkek' ? 'Erkek' : 'Kadın'}` : ' • Her iki cinsiyet'}
+                    <div class="detail-label">👤 Yaş Aralığı:</div>
+                    <div style="color: var(--secondary);">${result.disease.ageRange.min}-${result.disease.ageRange.max} yaş
+                        ${result.disease.gender && result.disease.gender !== 'both' ? `• ${result.disease.gender === 'erkek' ? 'Erkek' : 'Kadın'}` : '• Her iki cinsiyet'}
                     </div>
                 </div>` : ''}
             </div>
-
-            <div onclick="toggleDetails(${index})"
-                 style="text-align:center; margin-top:0.75rem; color:var(--primary); font-size:0.875rem; font-weight:600; cursor:pointer; user-select:none;">
-                ▾ Detayları Göster / Gizle ▾
-            </div>
-        `;
-
+            <div style="text-align: center; margin-top: 0.5rem; color: var(--primary); font-size: 0.875rem; font-weight: 600; cursor: pointer;" onclick="toggleDetails(${index})">
+                Detayları Göster/Gizle ↕
+            </div>`;
         container.appendChild(item);
     });
 }
@@ -968,3 +1020,8 @@ function toggleDetails(index) {
     const details = document.getElementById(`details-${index}`);
     if (details) details.classList.toggle('show');
 }
+
+// ==========================================
+// BAŞLAT
+// ==========================================
+window.onload = initApp;
