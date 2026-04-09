@@ -675,6 +675,7 @@ function analyzeCase() {
     const height = parseFloat(document.getElementById('patientHeight').value) || null;
     const imagingResults = document.getElementById('imagingResults')?.value || '';
     const pathologyResults = document.getElementById('pathologyResults')?.value || '';
+    const labResults = document.getElementById('labResults')?.value || '';
 
     if (!age && age !== 0) {
         alert('Lütfen hasta yaşını giriniz! (Yaş filtresi zorunludur)');
@@ -813,12 +814,13 @@ function analyzeCase() {
                 symptomScore = 10;
             }
 
-            // ── D. LAB SKORU (%20) ────────────────────────────────
-            let labScore = 50; // nötr
+            // ── D. LAB / SEROLOJİ SKORU (%20) ────────────────────────────────
+            let labScore = 50; // nötr başlangıç
             let matchedLabs = [];
             let totalLabWeight = 0;
             let matchedLabWeight = 0;
 
+            // D1. Sayısal lab değerleriyle eşleştirme (eski disease.labs formatı)
             if (disease.labs && Object.keys(disease.labs).length > 0) {
                 Object.keys(disease.labs).forEach(labKey => {
                     const labValue = labs[labKey];
@@ -847,8 +849,49 @@ function analyzeCase() {
                 });
                 if (totalLabWeight > 0) {
                     labScore = (matchedLabWeight / totalLabWeight) * 100;
-                } else {
-                    labScore = 50;
+                }
+            }
+
+            // D2. Metin tabanlı lab/seroloji eşleştirme (yeni labFindings[] dizisi)
+            // Kullanıcının girdiği lab sonuçları ile hastalığın beklenen bulgularını eşleştir
+            const userLabText = (labResults || '').toLowerCase().trim();
+            if (userLabText.length > 3 && disease.labFindings && disease.labFindings.length > 0) {
+                // Kullanıcı lab metinini kelimelere böl
+                const userLabWords = userLabText
+                    .replace(/[()[\]/\-,.;:]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length >= 4);
+
+                let labMatches = 0;
+                const labMatchDetails = [];
+
+                disease.labFindings.forEach(finding => {
+                    if (!finding || finding.length < 4) return;
+                    const fLow = finding.toLowerCase().replace(/[()[\]/\-,.;:]/g, ' ');
+                    const fWords = fLow.split(/\s+/).filter(w => w.length >= 4);
+
+                    // Bulgunun anlamlı kelimeleri kullanıcı metninde var mı?
+                    const matchCount = fWords.filter(fw =>
+                        userLabWords.some(uw => uw === fw || (fw.length >= 5 && (uw.startsWith(fw) || fw.startsWith(uw))))
+                    ).length;
+
+                    if (matchCount >= Math.min(2, Math.ceil(fWords.length * 0.5))) {
+                        labMatches++;
+                        labMatchDetails.push(finding.substring(0, 60));
+                    }
+                });
+
+                if (labMatches > 0) {
+                    // Lab eşleşme oranını hesapla
+                    const labMatchRate = (labMatches / disease.labFindings.length) * 100;
+                    // Mevcut labScore ile ağırlıklı birleştir
+                    if (totalLabWeight === 0) {
+                        // Sadece metin tabanlı skor var
+                        labScore = Math.min(100, labMatchRate * 1.5);
+                    } else {
+                        labScore = Math.min(100, (labScore * 0.5) + (labMatchRate * 0.5));
+                    }
+                    matchedLabs.push(...labMatchDetails);
                 }
             }
 
@@ -867,18 +910,57 @@ function analyzeCase() {
 
             // Radyoloji / Patoloji bonus skoru
             let imagingBonus = 0;
-            if (imagingResults && disease.radiologyNotes) {
-                const imgWords = imagingResults.toLowerCase().split(/\s+/);
-                const radWords = disease.radiologyNotes.toLowerCase().split(/\s+/);
-                const matches = imgWords.filter(w => w.length > 4 && radWords.some(r => r.includes(w)));
-                imagingBonus = Math.min(20, matches.length * 3);
+            const radText = (imagingResults || '').toLowerCase().trim();
+
+            // Yeni format: disease.radiology[] dizisi
+            if (radText.length > 3) {
+                const radFindings = disease.radiology && disease.radiology.length > 0
+                    ? disease.radiology
+                    : (disease.radiologyNotes ? [disease.radiologyNotes] : []);
+
+                if (radFindings.length > 0) {
+                    const userRadWords = radText.replace(/[()[\]/\-,.;:]/g, ' ')
+                        .split(/\s+/).filter(w => w.length > 3);
+                    let radMatches = 0;
+
+                    radFindings.forEach(finding => {
+                        const fWords = finding.toLowerCase()
+                            .replace(/[()[\]/\-,.;:]/g, ' ')
+                            .split(/\s+/).filter(w => w.length > 3);
+                        const overlap = fWords.filter(fw =>
+                            userRadWords.some(uw => uw === fw || (fw.length >= 5 && (uw.startsWith(fw) || fw.startsWith(uw))))
+                        );
+                        if (overlap.length >= Math.min(2, Math.ceil(fWords.length * 0.4))) {
+                            radMatches++;
+                        }
+                    });
+                    imagingBonus = Math.min(20, radMatches * 5);
+                }
             }
+
             let pathologyBonus = 0;
-            if (pathologyResults && disease.pathologyNotes) {
-                const pathWords = pathologyResults.toLowerCase().split(/\s+/);
-                const diseasePathWords = disease.pathologyNotes.toLowerCase().split(/\s+/);
-                const matches = pathWords.filter(w => w.length > 4 && diseasePathWords.some(r => r.includes(w)));
-                pathologyBonus = Math.min(20, matches.length * 4);
+            const pathText = (pathologyResults || '').toLowerCase().trim();
+            if (pathText.length > 3) {
+                const pathFindings = disease.pathology && disease.pathology.length > 0
+                    ? disease.pathology
+                    : (disease.pathologyNotes ? [disease.pathologyNotes] : []);
+
+                if (pathFindings.length > 0) {
+                    const userPathWords = pathText.replace(/[()[\]/\-,.;:]/g, ' ')
+                        .split(/\s+/).filter(w => w.length > 4);
+                    let pathMatches = 0;
+
+                    pathFindings.forEach(finding => {
+                        const fWords = finding.toLowerCase()
+                            .replace(/[()[\]/\-,.;:]/g, ' ')
+                            .split(/\s+/).filter(w => w.length > 4);
+                        const overlap = fWords.filter(fw =>
+                            userPathWords.some(uw => uw === fw || (fw.length >= 5 && (uw.startsWith(fw) || fw.startsWith(uw))))
+                        );
+                        if (overlap.length >= 1) pathMatches++;
+                    });
+                    pathologyBonus = Math.min(20, pathMatches * 5);
+                }
             }
 
             // ── F. TOPLAM SKOR (Ağırlıklı ortalama) ──────────────
@@ -988,19 +1070,32 @@ function displayResults(results) {
                 </div>` : ''}
                 ${result.matchedLabs.length > 0 ? `
                 <div class="detail-section">
-                    <div class="detail-label">🧪 Eşleşen Laboratuvar Bulguları:</div>
+                    <div class="detail-label">🧪 Eşleşen Seroloji / Lab Bulguları:</div>
                     <div>${result.matchedLabs.map(l => `<span class="badge matched-lab">${l}</span>`).join('')}</div>
                 </div>` : ''}
-                ${result.disease.pathologyNotes ? `
+                ${(result.disease.labFindings && result.disease.labFindings.length > 0) ? `
                 <div class="detail-section">
-                    <div class="detail-label">🔬 Patoloji Notları:</div>
-                    <div style="color: var(--secondary); font-size: 0.85rem;">${result.disease.pathologyNotes}</div>
+                    <div class="detail-label">📋 Beklenen Seroloji / Lab Bulguları:</div>
+                    <div>${result.disease.labFindings.slice(0, 6).map(l => `<span class="badge" style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;">${l}</span>`).join('')}${result.disease.labFindings.length > 6 ? `<span class="badge">+${result.disease.labFindings.length-6} daha</span>` : ''}</div>
                 </div>` : ''}
-                ${result.disease.radiologyNotes ? `
+                ${(result.disease.radiology && result.disease.radiology.length > 0) ? `
+                <div class="detail-section">
+                    <div class="detail-label">📷 Beklenen Radyoloji Bulguları${result.imagingBonus > 0 ? ` <span style="color:var(--success);font-size:0.78rem;">+${result.imagingBonus} bonus</span>` : ''}:</div>
+                    <div>${result.disease.radiology.slice(0, 4).map(r => `<span class="badge" style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;">${r}</span>`).join('')}${result.disease.radiology.length > 4 ? `<span class="badge">+${result.disease.radiology.length-4} daha</span>` : ''}</div>
+                </div>` : (result.disease.radiologyNotes ? `
                 <div class="detail-section">
                     <div class="detail-label">📷 Radyoloji Notları:</div>
                     <div style="color: var(--secondary); font-size: 0.85rem;">${result.disease.radiologyNotes}</div>
-                </div>` : ''}
+                </div>` : '')}
+                ${(result.disease.pathology && result.disease.pathology.length > 0) ? `
+                <div class="detail-section">
+                    <div class="detail-label">🔬 Patoloji Bulguları${result.pathologyBonus > 0 ? ` <span style="color:var(--success);font-size:0.78rem;">+${result.pathologyBonus} bonus</span>` : ''}:</div>
+                    <div style="color: var(--secondary); font-size: 0.85rem;">${result.disease.pathology.slice(0,3).join(' • ')}</div>
+                </div>` : (result.disease.pathologyNotes ? `
+                <div class="detail-section">
+                    <div class="detail-label">🔬 Patoloji Notları:</div>
+                    <div style="color: var(--secondary); font-size: 0.85rem;">${result.disease.pathologyNotes}</div>
+                </div>` : '')}
                 ${result.disease.ageRange ? `
                 <div class="detail-section">
                     <div class="detail-label">👤 Yaş Aralığı:</div>
