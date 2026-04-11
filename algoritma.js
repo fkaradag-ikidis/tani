@@ -850,11 +850,24 @@ function analyzeCase() {
                 unmatchedSymptoms = diseaseSymptoms.filter(s => !matchedSymptoms.includes(s));
                 symptomScore = (matchedSymptoms.length / diseaseSymptoms.length) * 100;
             } else {
-                symptomScore = 10;
+                // Hastalığın semptomu yoksa: semptom skoru nötr (0 değil, 50)
+                // Çünkü semptom verisi olmayan hastalık ne olursa olsun eşleşiyor sayılmaz
+                symptomScore = 0;
+            }
+
+            // ── Semptom seçildi mi kontrolü ──────────────────────
+            // Hiç semptom girilmemişse bu hastalığı tamamen atla (anlamlı skor üretemez)
+            if (selectedSymptoms.length === 0 && diseaseSymptoms.length > 0) {
+                symptomScore = 0;
             }
 
             // ── D. LAB / SEROLOJİ SKORU (%20) ────────────────────────────────
-            let labScore = 50; // nötr başlangıç
+            const anyLabEntered = Object.values(labs).some(v => v !== null && v !== undefined)
+                || (labResults || '').trim().length > 2;
+
+            // Hiç lab girilmemişse: nötr (50) — skoru ne yükseltir ne düşürür
+            // Lab girilmişse: 0'dan başla, eşleşenler artırır
+            let labScore = anyLabEntered ? 0 : 50;
             let matchedLabs = [];
             let totalLabWeight = 0;
             let matchedLabWeight = 0;
@@ -1004,20 +1017,36 @@ function analyzeCase() {
 
             // ── F. TOPLAM SKOR (Ağırlıklı ortalama) ──────────────
             const w = cfg.weights;
-            const baseScore = (symptomScore * w.symptom) + (prevalenceScore * w.prevalence) + (labScore * w.lab);
+
+            // Lab skoru hesabında: lab girilmediyse weight'i prevalansa yap
+            const effectiveLabWeight = anyLabEntered ? w.lab : 0;
+            const effectiveSymptomWeight = w.symptom + (anyLabEntered ? 0 : w.lab * 0.3);
+            const effectivePrevalenceWeight = w.prevalence + (anyLabEntered ? 0 : w.lab * 0.7);
+
+            const baseScore = (symptomScore * effectiveSymptomWeight)
+                + (prevalenceScore * effectivePrevalenceWeight)
+                + (labScore * effectiveLabWeight);
             const totalScore = Math.min(100, baseScore + imagingBonus + pathologyBonus);
 
-            // Minimum eşik kontrolü
+            // ── Minimum eşik kontrolü ─────────────────────────────
             const minScore = cfg.thresholds.minScore;
-            const highPrevMinSym = cfg.thresholds.highPrevalenceMinSymptom;
 
-            if (totalScore > minScore || (disease.prevalence === 'high' && symptomScore > highPrevMinSym)) {
-                results.push({
-                    disease, totalScore, symptomScore, prevalenceScore, labScore,
-                    matchedSymptoms, unmatchedSymptoms, matchedLabs, prevalenceLabel,
-                    imagingBonus, pathologyBonus
-                });
-            }
+            // Hiç semptom girilmediyse: sadece yüksek skorlu (≥70) hastalıkları göster
+            // — bu çok nadir olur, kullanıcıyı uyardık zaten
+            if (selectedSymptoms.length === 0 && totalScore < 70) return;
+
+            // Normal durum: eşiği geçenler listeye alınır
+            // NOT: prevalans tek başına geçiş sağlamaz (eski bug giderildi)
+            if (totalScore <= minScore) return;
+
+            // Semptom girildi ama hiç eşleşme yoksa: listeye alma
+            if (selectedSymptoms.length > 0 && matchedSymptoms.length === 0) return;
+
+            results.push({
+                disease, totalScore, symptomScore, prevalenceScore, labScore,
+                matchedSymptoms, unmatchedSymptoms, matchedLabs, prevalenceLabel,
+                imagingBonus, pathologyBonus
+            });
         });
 
         results.sort((a, b) => {
