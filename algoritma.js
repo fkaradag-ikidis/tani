@@ -2,10 +2,10 @@
  * ============================================================
  * ALGORİTMA.JS — Semptomdan Tanıya Klinik Karar Destek Motoru
  * © 2024-2026 Dr. Feridun Karadağ — Tüm Hakları Saklıdır
- * VERSİYON: 2.2 — 2026-04-11
+ * VERSİYON: 2.3 — 2026-04-11
  * ============================================================
  */
-console.log('✅ Algoritma v2.2 yüklendi');
+console.log('✅ Algoritma v2.3 yüklendi');
 
 // ==========================================
 // ALGORİTMA YAPILANDIRMASI (Admin Panelinden Değiştirilebilir)
@@ -778,6 +778,120 @@ function getLabReference(id) {
     return refs[id] || { min: 0, max: 999, name: id };
 }
 
+// ── Lab profili oluştur: sayısal + serbest metin → klinik anahtar kelimeler ──
+function buildUserLabProfile(labs, freeText) {
+    const profile = [];
+
+    function add(label, keywords) {
+        profile.push({ label, keywords });
+    }
+
+    const v = labs;
+
+    // Hemogram
+    if (v.hgb !== null) {
+        if (v.hgb < 12)      add(`Anemi (Hgb:${v.hgb})`,         ['anemi','hemoglobin','hgb','eritrosit','hematokrit','solukluk']);
+        else if (v.hgb > 17) add(`Polisitemi (Hgb:${v.hgb})`,    ['polisitemi','hemoglobin yüksek','eritrositoz']);
+    }
+    if (v.wbc !== null) {
+        if (v.wbc < 4)       add(`Lökopeni (WBC:${v.wbc})`,      ['lökopeni','lökosit düşük','nötropeni','pansitopeni']);
+        else if (v.wbc > 10) add(`Lökositoz (WBC:${v.wbc})`,     ['lökositoz','lökosit','nötrofili','wbc','enfeksiyon','sepsis']);
+    }
+    if (v.plt !== null) {
+        if (v.plt < 150)     add(`Trombositopeni (Plt:${v.plt})`, ['trombositopeni','trombosit düşük','platelet','pansitopeni']);
+        else if (v.plt > 400)add(`Trombositoz (Plt:${v.plt})`,   ['trombositoz','trombosit yüksek','platelet yüksek']);
+    }
+
+    // İnflamasyon belirteçleri
+    if (v.crp !== null && v.crp > 5)   add(`CRP Yüksek (${v.crp})`,  ['crp','c-reaktif','inflamasyon','akut faz','crp yüksek']);
+    if (v.esr !== null && v.esr > 20)  add(`Sedim Yüksek (${v.esr})`,[' sedimentasyon','esr','sedim','inflamasyon']);
+
+    // Glukoz / Diyabet
+    if (v.glucose !== null) {
+        if (v.glucose < 70)      add(`Hipoglisemi (${v.glucose})`,  ['hipoglisemi','glukoz düşük','insülin']);
+        else if (v.glucose > 126)add(`Hiperglisemi (${v.glucose})`, ['hiperglisemi','glukoz','kan şekeri','diyabet','diabetes','hba1c','açlık şeker','glukose','diabet']);
+    }
+
+    // Böbrek fonksiyon
+    if (v.creatinine !== null && v.creatinine > 1.2)
+        add(`Kreatinin↑ (${v.creatinine})`, ['kreatinin','böbrek yetmezliği','renal yetmezlik','egfr','azotemi','üremi','kidney']);
+    if (v.urea !== null && v.urea > 50)
+        add(`Üre↑ (${v.urea})`,             ['üre','bun','azotemi','üremi','böbrek yetmezliği']);
+
+    // Karaciğer fonksiyon
+    if (v.ast !== null && v.ast > 40)
+        add(`AST↑ (${v.ast})`,  ['ast','transaminaz','karaciğer','hepatit','sgot']);
+    if (v.alt !== null && v.alt > 40)
+        add(`ALT↑ (${v.alt})`,  ['alt','transaminaz','karaciğer','hepatit','sgpt']);
+    if (v.alp !== null && v.alp > 130)
+        add(`ALP↑ (${v.alp})`,  ['alp','alkalen fosfataz','kolestaz','karaciğer']);
+    if (v.bilirubin !== null && v.bilirubin > 1.2)
+        add(`Bilirubin↑ (${v.bilirubin})`,  ['bilirubin','sarılık','ikter','kolestaz','hiperbilirubinemi','jaundice']);
+    if (v.albumin !== null && v.albumin < 3.5)
+        add(`Albumin↓ (${v.albumin})`,      ['albumin','hipoalbuminemi','protein kaybı','nefrotik','sirozis','malnütrisyon']);
+
+    // Elektrolitler
+    if (v.sodium !== null) {
+        if (v.sodium < 135)      add(`Hiponatremi (${v.sodium})`,  ['hiponatremi','sodyum düşük','sodium','tuz kaybı']);
+        else if (v.sodium > 145) add(`Hipernatremi (${v.sodium})`, ['hipernatremi','sodyum yüksek','dehidrasyon','diabetes insipidus']);
+    }
+    if (v.potassium !== null) {
+        if (v.potassium < 3.5)   add(`Hipokalemi (${v.potassium})`,['hipokalemi','potasyum düşük','kalium','kas güçsüzlüğü']);
+        else if (v.potassium > 5)add(`Hiperkalemi (${v.potassium})`,['hiperkalemi','potasyum yüksek','kalium','böbrek yetmezliği','asidoz']);
+    }
+    if (v.calcium !== null) {
+        if (v.calcium < 8.5)     add(`Hipokalsemi (${v.calcium})`, ['hipokalsemi','kalsiyum düşük','calcium','tetani']);
+        else if (v.calcium > 10.5)add(`Hiperkalsemi (${v.calcium})`,['hiperkalsemi','kalsiyum yüksek','malignite','hiperparatiroidizm','myeloma']);
+    }
+
+    // Kardiyak belirteçler
+    if (v.troponin !== null && v.troponin > 0.014)
+        add(`Troponin↑ (${v.troponin})`, ['troponin','kardiyak','miyokard','ck-mb','miyokardit','akut koroner']);
+    if (v.bnp !== null && v.bnp > 100)
+        add(`BNP↑ (${v.bnp})`,          ['bnp','nt-probnp','kalp yetmezliği','kardiyak','natriüretik']);
+
+    // Tiroid
+    if (v.tsh !== null) {
+        if (v.tsh < 0.4) add(`TSH↓ (${v.tsh})`,  ['tsh','hipertiroid','tirotoksikoz','tiroid']);
+        if (v.tsh > 4.0) add(`TSH↑ (${v.tsh})`,  ['tsh','hipotiroid','tiroid','tiroidit']);
+    }
+
+    // Lipid
+    if (v.triglyceride !== null && v.triglyceride > 150)
+        add(`TG↑ (${v.triglyceride})`, ['trigliserid','hipertrigliseridemi','hiperlipidemi','dislipidemi','lipid']);
+
+    // Serbest metin lab sonuçları (kullanıcının yazdığı)
+    if (freeText && freeText.trim().length > 2) {
+        const txt = freeText.toLowerCase();
+        // Serbest metinden de profil öğeleri çıkar
+        const textMap = [
+            {terms:['ana pozitif','antinükleer'],   label:'ANA(+)',    kw:['ana','antinükleer','autoimmün','otoimmün']},
+            {terms:['anti-dsdna','anti dsdna'],     label:'anti-dsDNA(+)', kw:['anti-dsdna','dsdna','lupus','sle']},
+            {terms:['rf pozitif','romatoid faktör'],label:'RF(+)',     kw:['rf','romatoid faktör','romatoid artrit']},
+            {terms:['anti-ccp','anticcp'],          label:'Anti-CCP(+)',kw:['anti-ccp','anticcp','sitrülin','romatoid']},
+            {terms:['hla-b27','hlab27'],            label:'HLA-B27(+)',kw:['hla-b27','hlab27','ankilozan','spondilit']},
+            {terms:['anca'],                        label:'ANCA(+)',   kw:['anca','vaskülit','granülomatozis']},
+            {terms:['troponin yüksek','troponin pozitif'],label:'Troponin↑',kw:['troponin','miyokard','kardiyak']},
+            {terms:['prokalsitonin','pct'],         label:'PCT↑',      kw:['prokalsitonin','sepsis','enfeksiyon']},
+            {terms:['d-dimer','ddimer'],            label:'D-Dimer↑',  kw:['d-dimer','tromboembolizm','pulmoner emboli','dvt']},
+            {terms:['hbsag pozitif','hepatit b'],   label:'HBsAg(+)',  kw:['hbsag','hepatit b','hbv']},
+            {terms:['anti-hcv','hepatit c'],        label:'Anti-HCV(+)',kw:['anti-hcv','hepatit c','hcv']},
+            {terms:['hiv pozitif','hiv'],           label:'HIV(+)',    kw:['hiv','aids','immün yetmezlik']},
+            {terms:['psa yüksek'],                  label:'PSA↑',      kw:['psa','prostat','prostat kanseri']},
+            {terms:['ldh yüksek'],                  label:'LDH↑',      kw:['ldh','laktat','hemoliz','malignite']},
+        ];
+        textMap.forEach(m => {
+            if (m.terms.some(t => txt.includes(t))) {
+                add(m.label, m.kw);
+            }
+        });
+        // Genel serbest metin arama
+        profile.push({ label: 'Serbest lab metni', keywords: txt.split(/\s+/).filter(w => w.length >= 4) });
+    }
+
+    return profile;
+}
+
 // ==========================================
 // ANA TANISAL ALGORİTMA
 // ==========================================
@@ -941,86 +1055,35 @@ function analyzeCase() {
             const anyLabEntered = Object.values(labs).some(v => v !== null && v !== undefined)
                 || (labResults || '').trim().length > 2;
 
-            // Hiç lab girilmemişse: nötr (50) — skoru ne yükseltir ne düşürür
-            // Lab girilmişse: 0'dan başla, eşleşenler artırır
             let labScore = anyLabEntered ? 0 : 50;
             let matchedLabs = [];
-            let totalLabWeight = 0;
-            let matchedLabWeight = 0;
 
-            // D1. Sayısal lab değerleriyle eşleştirme (eski disease.labs formatı)
-            if (disease.labs && Object.keys(disease.labs).length > 0) {
-                Object.keys(disease.labs).forEach(labKey => {
-                    const labValue = labs[labKey];
-                    const condition = disease.labs[labKey];
-                    if (labValue !== null && labValue !== undefined) {
-                        totalLabWeight += (condition.weight || 10);
-                        let isMatch = false;
-                        if (condition.type === 'range') {
-                            if (labValue >= condition.min && labValue <= condition.max) isMatch = true;
-                        } else if (condition.type === 'high') {
-                            const ref = getLabReference('lab' + labKey.charAt(0).toUpperCase() + labKey.slice(1));
-                            if (labValue > ref.max) isMatch = true;
-                        } else if (condition.type === 'low') {
-                            const ref = getLabReference('lab' + labKey.charAt(0).toUpperCase() + labKey.slice(1));
-                            if (labValue < ref.min) isMatch = true;
-                        } else if (condition.type === 'positive') {
-                            if (labValue === 'pozitif' || labValue === 'positive' || labValue === true) isMatch = true;
-                        } else if (condition.type === 'exact') {
-                            if (labValue == condition.value) isMatch = true;
+            if (anyLabEntered) {
+                // ── Kullanıcının lab profilini oluştur ───────────────
+                // Her anormal değer için klinik etiket + arama kelimeleri listesi
+                const userProfile = buildUserLabProfile(labs, labResults || '');
+
+                if (userProfile.length > 0) {
+                    // Hastalığın tüm lab metin içeriği (labFindings + labs object)
+                    const disLabText = [
+                        ...(disease.labFindings || []),
+                        ...Object.values(disease.labs || {}).map(l => (l.name || '') + ' ' + (l.type || ''))
+                    ].join(' ').toLowerCase();
+
+                    let hits = 0;
+                    userProfile.forEach(abn => {
+                        // Herhangi bir anahtar kelime hastalığın lab metninde geçiyor mu?
+                        const matched = abn.keywords.some(kw => disLabText.includes(kw.toLowerCase()));
+                        if (matched) {
+                            hits++;
+                            matchedLabs.push(abn.label);
                         }
-                        if (isMatch) {
-                            matchedLabWeight += (condition.weight || 10);
-                            matchedLabs.push(`${condition.name || labKey}: ${labValue}`);
-                        }
+                    });
+
+                    if (hits > 0) {
+                        // Kullanıcının anormal değerlerinin kaçı bu hastalıkla uyumlu?
+                        labScore = Math.min(100, (hits / userProfile.length) * 130);
                     }
-                });
-                if (totalLabWeight > 0) {
-                    labScore = (matchedLabWeight / totalLabWeight) * 100;
-                }
-            }
-
-            // D2. Metin tabanlı lab/seroloji eşleştirme (yeni labFindings[] dizisi)
-            // Hem kullanıcının girdiği serbest metin hem de sayısal lab yorumları kullanılır
-            const labInterpretation = interpretLabValues(labs); // "anemi lökositoz kreatinin yüksek..."
-            const userLabText = ((labResults || '') + ' ' + labInterpretation).toLowerCase().trim();
-            if (userLabText.length > 3 && disease.labFindings && disease.labFindings.length > 0) {
-                // Kullanıcı lab metinini kelimelere böl
-                const userLabWords = userLabText
-                    .replace(/[()[\]/\-,.;:]/g, ' ')
-                    .split(/\s+/)
-                    .filter(w => w.length >= 4);
-
-                let labMatches = 0;
-                const labMatchDetails = [];
-
-                disease.labFindings.forEach(finding => {
-                    if (!finding || finding.length < 4) return;
-                    const fLow = finding.toLowerCase().replace(/[()[\]/\-,.;:]/g, ' ');
-                    const fWords = fLow.split(/\s+/).filter(w => w.length >= 4);
-
-                    // Bulgunun anlamlı kelimeleri kullanıcı metninde var mı?
-                    const matchCount = fWords.filter(fw =>
-                        userLabWords.some(uw => uw === fw || (fw.length >= 5 && (uw.startsWith(fw) || fw.startsWith(uw))))
-                    ).length;
-
-                    if (matchCount >= Math.min(2, Math.ceil(fWords.length * 0.5))) {
-                        labMatches++;
-                        labMatchDetails.push(finding.substring(0, 60));
-                    }
-                });
-
-                if (labMatches > 0) {
-                    // Lab eşleşme oranını hesapla
-                    const labMatchRate = (labMatches / disease.labFindings.length) * 100;
-                    // Mevcut labScore ile ağırlıklı birleştir
-                    if (totalLabWeight === 0) {
-                        // Sadece metin tabanlı skor var
-                        labScore = Math.min(100, labMatchRate * 1.5);
-                    } else {
-                        labScore = Math.min(100, (labScore * 0.5) + (labMatchRate * 0.5));
-                    }
-                    matchedLabs.push(...labMatchDetails);
                 }
             }
 
