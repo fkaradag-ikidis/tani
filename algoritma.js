@@ -2,8 +2,10 @@
  * ============================================================
  * ALGORİTMA.JS — Semptomdan Tanıya Klinik Karar Destek Motoru
  * © 2024-2026 Dr. Feridun Karadağ — Tüm Hakları Saklıdır
+ * VERSİYON: 2.2 — 2026-04-11
  * ============================================================
  */
+console.log('✅ Algoritma v2.2 yüklendi');
 
 // ==========================================
 // ALGORİTMA YAPILANDIRMASI (Admin Panelinden Değiştirilebilir)
@@ -256,7 +258,12 @@ function initDiseaseDatabase() {
 
     ALL_DB_VARS.forEach(varName => {
         try {
-            const db = window[varName];
+            // var ile tanımlanan değişkenler window'a bağlanır (const bağlanmaz)
+            // İkisi de dene: window[varName] ve doğrudan eval
+            let db = window[varName];
+            if (!db) {
+                try { db = eval(varName); } catch(e2) {}
+            }
             if (db && db.diseases && db.diseases.length > 0) {
                 allDiseases = allDiseases.concat(db.diseases.map(transformRawDisease));
                 loadedDBCount++;
@@ -398,20 +405,10 @@ function transformLabFindings(labFindings) {
 }
 
 function getFallbackDiseases() {
-    return [
-        {
-            code: 'J18.9', name: 'Pnömoni', category: 'Solunum Sistemi Hastalıkları', prevalence: 'high',
-            symptoms: ['Öksürük (ürün - balgamlı)', 'Ateş', 'Nefes darlığı (dispne)', 'Göğüs ağrısı (pleuritik - nefesle artan)', 'Halsizlik'],
-            labs: { crp: { type: 'high', weight: 20 }, wbc: { type: 'high', weight: 15 } },
-            ageRange: { min: 0, max: 120 }, gender: 'both'
-        },
-        {
-            code: 'I21.9', name: 'Akut Miyokard Enfarktüsü', category: 'Kardiyovasküler Hastalıklar', prevalence: 'high',
-            symptoms: ['Göğüs ağrısı (baskı hissi)', 'Terleme (Hiperhidroz)', 'Nefes darlığı (dispne)', 'Bulantı (Nausea)', 'Senkop (bayılma)'],
-            labs: { troponin: { type: 'high', weight: 30 }, bnp: { type: 'high', weight: 10 } },
-            ageRange: { min: 18, max: 120 }, gender: 'both'
-        }
-    ];
+    // KASITLI OLARAK BOŞ — yedek liste yanlış tanı üretir
+    // Veritabanı yüklenemezse boş liste döndür, kullanıcıyı bilgilendir
+    console.error('❌ Hiçbir veritabanı dosyası yüklenemedi! Lütfen tüm veritabani_*.js dosyalarının sitede olduğunu kontrol edin.');
+    return [];
 }
 
 // ==========================================
@@ -728,7 +725,8 @@ function analyzeCase() {
     }
     extractSymptomsFromHistory();
     if (selectedSymptoms.length === 0) {
-        if (!confirm('Hiç semptom seçilmedi. Sadece yaş/cinsiyet ve lab verilerine göre genel tarama yapılacak. Devam etmek istiyor musunuz?')) return;
+        alert('⚠️ Lütfen en az bir semptom seçiniz.\n\nSemptom olmadan güvenilir tanı üretmek mümkün değildir. Semptomları seçtikten sonra lab ve seroloji verilerini de ekleyebilirsiniz.');
+        return;
     }
 
     const labs = {
@@ -1031,16 +1029,15 @@ function analyzeCase() {
             // ── Minimum eşik kontrolü ─────────────────────────────
             const minScore = cfg.thresholds.minScore;
 
-            // Hiç semptom girilmediyse: sadece yüksek skorlu (≥70) hastalıkları göster
-            // — bu çok nadir olur, kullanıcıyı uyardık zaten
-            if (selectedSymptoms.length === 0 && totalScore < 70) return;
+            // ── KESİN KURAL: Semptom seçilmemişse sonuç üretme ───
+            // Sadece lab/seroloji girilse de semptom olmadan güvenilir tanı olmaz
+            if (selectedSymptoms.length === 0) return;
 
-            // Normal durum: eşiği geçenler listeye alınır
-            // NOT: prevalans tek başına geçiş sağlamaz (eski bug giderildi)
+            // Semptom girildi ama bu hastalıkla hiç eşleşmiyorsa: listeye alma
+            if (matchedSymptoms.length === 0) return;
+
+            // Normal eşik kontrolü
             if (totalScore <= minScore) return;
-
-            // Semptom girildi ama hiç eşleşme yoksa: listeye alma
-            if (selectedSymptoms.length > 0 && matchedSymptoms.length === 0) return;
 
             results.push({
                 disease, totalScore, symptomScore, prevalenceScore, labScore,
