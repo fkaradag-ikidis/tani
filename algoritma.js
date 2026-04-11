@@ -229,30 +229,69 @@ let diseaseDatabase = [];
 // ==========================================
 
 function initDiseaseDatabase() {
-    // 1. Önce localStorage'dan admin tarafından kaydedilmiş DB'yi dene
+    // 1. Önce localStorage'dan admin panelinin kaydettiği diff'i uygula
+    let adminDiff = null;
     try {
-        const savedDB = localStorage.getItem('adminDiseaseDB');
-        if (savedDB) {
-            const parsed = JSON.parse(savedDB);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-                diseaseDatabase = parsed;
-                console.log(`✅ Hastalık DB localStorage'dan yüklendi: ${diseaseDatabase.length} hastalık`);
-                return;
+        const saved = localStorage.getItem('adminDiseaseDB');
+        if (saved) adminDiff = JSON.parse(saved);
+    } catch(e) {}
+
+    // 2. Tüm yüklü veritabanı değişkenlerini topla
+    const ALL_DB_VARS = [
+        'diseaseDB_romatoloji', 'diseaseDB_enfeksiyon', 'diseaseDB_onkoloji',
+        'diseaseDB_hematoloji', 'diseaseDB_endokrin', 'diseaseDB_kardiyoloji',
+        'diseaseDB_gogus', 'diseaseDB_gastro', 'diseaseDB_nefroloji',
+        'diseaseDB_noroloji', 'diseaseDB_psikiyatri', 'diseaseDB_dermatoloji',
+        'diseaseDB_kadin_dogum', 'diseaseDB_cocuk', 'diseaseDB_goz',
+        'diseaseDB_kbb', 'diseaseDB_uroloji', 'diseaseDB_ortopedi',
+        'diseaseDB_travma', 'diseaseDB_allerji', 'diseaseDB_geriatri',
+        'diseaseDB_genel_cerrahi', 'diseaseDB_kvc', 'diseaseDB_genetik',
+        'diseaseDB_sendrom',
+        // Eski tek dosya formatı (geriye dönük uyumluluk)
+        'diseaseDB', 'diseaseDB2'
+    ];
+
+    let allDiseases = [];
+    let loadedDBCount = 0;
+
+    ALL_DB_VARS.forEach(varName => {
+        try {
+            const db = window[varName];
+            if (db && db.diseases && db.diseases.length > 0) {
+                allDiseases = allDiseases.concat(db.diseases.map(transformRawDisease));
+                loadedDBCount++;
             }
-        }
-    } catch (e) {
-        console.warn('localStorage okuma hatası:', e);
+        } catch(e) {}
+    });
+
+    // Eski tek dosya: `const diseaseDB` window'a bağlanmaz, direkt erişim dene
+    if (loadedDBCount === 0) {
+        try {
+            if (typeof diseaseDB !== 'undefined' && diseaseDB.diseases) {
+                allDiseases = diseaseDB.diseases.map(transformRawDisease);
+                loadedDBCount++;
+            }
+        } catch(e) {}
     }
 
-    // 2. veritabani.js'den dönüştür (window.diseaseDB)
-    if (window.diseaseDB && window.diseaseDB.diseases && window.diseaseDB.diseases.length > 0) {
-        diseaseDatabase = window.diseaseDB.diseases.map(transformRawDisease);
-        console.log(`✅ Hastalık DB veritabani.js'den yüklendi: ${diseaseDatabase.length} hastalık`);
+    if (allDiseases.length > 0) {
+        // Admin diff'ini uygula (silinen/değiştirilen kayıtlar)
+        if (adminDiff) {
+            const deleted = adminDiff.deleted || {};
+            const modified = adminDiff.modified || {};
+            const added = (adminDiff.added || []).map(transformRawDisease);
+
+            allDiseases = allDiseases.filter(d => !deleted[d.code]);
+            allDiseases = allDiseases.map(d => modified[d.code] ? transformRawDisease(modified[d.code]) : d);
+            allDiseases = allDiseases.concat(added);
+        }
+        diseaseDatabase = allDiseases;
+        console.log(`✅ Hastalık DB yüklendi: ${diseaseDatabase.length} hastalık (${loadedDBCount} veritabanı dosyası)`);
         return;
     }
 
     // 3. Fallback: Temel örnek veri
-    console.warn('⚠️ Hastalık veritabanı bulunamadı. Örnek veriler yükleniyor.');
+    console.warn('⚠️ Hiçbir veritabanı dosyası yüklenemedi. Örnek veriler kullanılıyor.');
     diseaseDatabase = getFallbackDiseases();
 }
 
