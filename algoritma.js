@@ -366,21 +366,55 @@ function determineAgeRange(category, name) {
 
 function transformLabFindings(labFindings) {
     const labs = {};
-    // Basit eşleşme sözlüğü
+    // Kapsamlı eşleşme sözlüğü
     const labKeywords = {
-        'wbc': ['lökositoz', 'lökopeni', 'wbc', 'lökosit'],
-        'hgb': ['hemoglobin', 'anemi', 'hgb', 'hb'],
-        'plt': ['trombositopeni', 'trombositoz', 'platelet', 'trombosit'],
-        'crp': ['crp', 'c-reaktif'],
-        'esr': ['sedimentasyon', 'esr'],
-        'glucose': ['hiperglisemi', 'hipoglisemi', 'glukoz', 'kan şekeri'],
-        'creatinine': ['kreatinin', 'böbrek yetmezliği'],
-        'ast': ['ast', 'transaminaz'],
-        'alt': ['alt', 'transaminaz'],
-        'bilirubin': ['bilirubin', 'sarılık', 'ikter'],
-        'troponin': ['troponin'],
-        'bnp': ['bnp', 'nt-probnp'],
-        'tsh': ['tsh', 'tiroit', 'tiroid']
+        'wbc':         ['lökositoz', 'lökopeni', 'wbc', 'lökosit', 'beyaz küre', 'white blood'],
+        'hgb':         ['hemoglobin', 'anemi', 'hgb', 'hb', 'eritrosit'],
+        'plt':         ['trombositopeni', 'trombositoz', 'platelet', 'trombosit', 'plt'],
+        'crp':         ['crp', 'c-reaktif', 'c reactive'],
+        'esr':         ['sedimentasyon', 'esr', 'eritrosit sedimentasyon'],
+        'glucose':     ['hiperglisemi', 'hipoglisemi', 'glukoz', 'kan şekeri', 'glukose', 'glucose'],
+        'creatinine':  ['kreatinin', 'böbrek yetmezliği', 'creatinine', 'renal yetmezlik'],
+        'urea':        ['üre', 'bun', 'azotemi'],
+        'ast':         ['ast', 'aspartat', 'sgot'],
+        'alt':         ['alt', 'alanin', 'sgpt'],
+        'alp':         ['alp', 'alkalen fosfataz'],
+        'bilirubin':   ['bilirubin', 'sarılık', 'ikter', 'jaundice'],
+        'albumin':     ['albumin', 'hipoalbuminemi'],
+        'sodium':      ['sodyum', 'hiponatremi', 'hipernatremi', 'sodium'],
+        'potassium':   ['potasyum', 'hipokalemi', 'hiperkalemi', 'potassium'],
+        'calcium':     ['kalsiyum', 'hipokalsemi', 'hiperkalsemi', 'calcium'],
+        'troponin':    ['troponin', 'kardiyak enzim', 'ck-mb', 'ckmb'],
+        'bnp':         ['bnp', 'nt-probnp', 'brain natriuretic'],
+        'tsh':         ['tsh', 'tiroit stimülan', 'tiroid', 'hipotiroid', 'hipertiroid'],
+        'triglyceride':['trigliserid', 'triglyceride', 'tg'],
+        'ldl':         ['ldl', 'düşük yoğunluklu lipoprotein'],
+        'hdl':         ['hdl', 'yüksek yoğunluklu lipoprotein'],
+        'uricacid':    ['ürik asit', 'uric acid', 'gut', 'hiperürisemi'],
+        'ferritin':    ['ferritin'],
+        'iron':        ['demir', 'iron', 'tibc', 'demir bağlama'],
+        'b12':         ['b12', 'kobalamin', 'megaloblastik'],
+        'folate':      ['folat', 'folik asit'],
+        'procalcitonin':['prokalsitonin', 'procalcitonin', 'pct'],
+        'lactate':     ['laktat', 'laktik asit'],
+        'inr':         ['inr', 'pt', 'protrombin'],
+        'aptt':        ['aptt', 'ptt', 'koagülasyon'],
+        'fibrinogen':  ['fibrinojen', 'fibrinogen'],
+        'ddimer':      ['d-dimer', 'd dimer'],
+        'hba1c':       ['hba1c', 'glikozile hemoglobin', 'hemoglobin a1c'],
+        'ana':         ['ana pozitif', 'antinükleer antikor', 'antinuclear'],
+        'rf':          ['rf pozitif', 'romatoid faktör', 'rheumatoid factor'],
+        'anticcp':     ['anti-ccp', 'anti ccp', 'acpa', 'anti-sitrülin'],
+        'anca':        ['anca', 'anti-nötrofil'],
+        'antidsdna':   ['anti-dsdna', 'anti dsdna'],
+        'complement':  ['kompleman', 'c3 düşük', 'c4 düşük', 'komplement'],
+        'hlab27':      ['hla-b27', 'hla b27'],
+        'psa':         ['psa', 'prostat spesifik'],
+        'ldh':         ['ldh', 'laktat dehidrogenaz'],
+        'amylase':     ['amilaz', 'amylase'],
+        'lipase':      ['lipaz', 'lipase'],
+        'ammonia':     ['amonyak', 'ammonia'],
+        'egfr':        ['egfr', 'glomerüler filtrasyon'],
     };
 
     labFindings.forEach(finding => {
@@ -389,11 +423,19 @@ function transformLabFindings(labFindings) {
             if (labKeywords[labKey].some(kw => findingLower.includes(kw))) {
                 if (!labs[labKey]) {
                     const isHigh = findingLower.includes('yüksek') || findingLower.includes('artmış') ||
-                        findingLower.includes('elevated') || findingLower.includes('+');
+                        findingLower.includes('elevated') || findingLower.includes('+') ||
+                        findingLower.includes('pozitif') || findingLower.includes('positive') ||
+                        findingLower.includes('lökositoz') || findingLower.includes('trombositoz') ||
+                        findingLower.includes('hiperglisemi') || findingLower.includes('hiperkalsemi') ||
+                        findingLower.includes('hipernatremi') || findingLower.includes('hiperkalemi') ||
+                        findingLower.includes('hiperürisemi');
                     const isLow = findingLower.includes('düşük') || findingLower.includes('azalmış') ||
-                        findingLower.includes('peni');
+                        findingLower.includes('peni') || findingLower.includes('low') ||
+                        findingLower.includes('hipoglisemi') || findingLower.includes('hipokalsemi') ||
+                        findingLower.includes('hiponatremi') || findingLower.includes('hipokalemi') ||
+                        findingLower.includes('anemi');
                     labs[labKey] = {
-                        type: isHigh ? 'high' : isLow ? 'low' : 'high',
+                        type: isHigh ? 'high' : isLow ? 'low' : 'present',
                         weight: 15,
                         name: labKey.toUpperCase()
                     };
@@ -402,6 +444,42 @@ function transformLabFindings(labFindings) {
         });
     });
     return labs;
+}
+
+// Sayısal lab değerlerini klinik terimlere çevir (D2 eşleştirmesi için)
+function interpretLabValues(labs) {
+    const terms = [];
+    const refs = {
+        wbc:         {min:4,   max:10,   low:'lökopeni',      high:'lökositoz',       unit:'K/μL'},
+        hgb:         {min:12,  max:16,   low:'anemi',          high:'hemoglobin yüksek',unit:'g/dL'},
+        plt:         {min:150, max:400,  low:'trombositopeni', high:'trombositoz',      unit:'K/μL'},
+        crp:         {min:0,   max:5,    low:'',               high:'CRP yüksek',       unit:'mg/L'},
+        esr:         {min:0,   max:20,   low:'',               high:'sedimentasyon yüksek',unit:'mm/h'},
+        glucose:     {min:70,  max:100,  low:'hipoglisemi',    high:'hiperglisemi',     unit:'mg/dL'},
+        creatinine:  {min:0.6, max:1.2,  low:'',               high:'kreatinin yüksek böbrek yetmezliği',unit:'mg/dL'},
+        urea:        {min:10,  max:50,   low:'',               high:'üre yüksek azotemi',unit:'mg/dL'},
+        ast:         {min:0,   max:40,   low:'',               high:'AST yüksek transaminaz',unit:'U/L'},
+        alt:         {min:0,   max:40,   low:'',               high:'ALT yüksek transaminaz',unit:'U/L'},
+        alp:         {min:40,  max:130,  low:'',               high:'ALP yüksek',       unit:'U/L'},
+        bilirubin:   {min:0.3, max:1.2,  low:'',               high:'bilirubin yüksek sarılık ikter',unit:'mg/dL'},
+        albumin:     {min:3.5, max:5.0,  low:'hipoalbuminemi albumin düşük',high:'',   unit:'g/dL'},
+        sodium:      {min:135, max:145,  low:'hiponatremi',    high:'hipernatremi',     unit:'mEq/L'},
+        potassium:   {min:3.5, max:5.0,  low:'hipokalemi',     high:'hiperkalemi',      unit:'mEq/L'},
+        calcium:     {min:8.5, max:10.5, low:'hipokalsemi',    high:'hiperkalsemi',     unit:'mg/dL'},
+        troponin:    {min:0,   max:0.014,low:'',               high:'troponin yüksek kardiyak miyokard',unit:'ng/mL'},
+        bnp:         {min:0,   max:100,  low:'',               high:'BNP yüksek kalp yetmezliği',unit:'pg/mL'},
+        tsh:         {min:0.4, max:4.0,  low:'hipertiroid TSH düşük',high:'hipotiroid TSH yüksek',unit:'μIU/mL'},
+        triglyceride:{min:0,   max:150,  low:'',               high:'hipertrigliseridemi trigliserid yüksek',unit:'mg/dL'},
+    };
+
+    Object.entries(labs).forEach(([key, value]) => {
+        if (value === null || value === undefined) return;
+        const ref = refs[key];
+        if (!ref) return;
+        if (value < ref.min && ref.low) terms.push(ref.low);
+        else if (value > ref.max && ref.high) terms.push(ref.high);
+    });
+    return terms.join(' ');
 }
 
 function getFallbackDiseases() {
@@ -903,8 +981,9 @@ function analyzeCase() {
             }
 
             // D2. Metin tabanlı lab/seroloji eşleştirme (yeni labFindings[] dizisi)
-            // Kullanıcının girdiği lab sonuçları ile hastalığın beklenen bulgularını eşleştir
-            const userLabText = (labResults || '').toLowerCase().trim();
+            // Hem kullanıcının girdiği serbest metin hem de sayısal lab yorumları kullanılır
+            const labInterpretation = interpretLabValues(labs); // "anemi lökositoz kreatinin yüksek..."
+            const userLabText = ((labResults || '') + ' ' + labInterpretation).toLowerCase().trim();
             if (userLabText.length > 3 && disease.labFindings && disease.labFindings.length > 0) {
                 // Kullanıcı lab metinini kelimelere böl
                 const userLabWords = userLabText
